@@ -1,40 +1,28 @@
 {
-  "name": "react-example",
+  "name": "exercise-counter",
+  "version": "2.3.0",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/prepare-assets.mjs && vite --port=3000 --host=0.0.0.0",
-    "build": "node scripts/prepare-assets.mjs && vite build",
-    "test": "node tests/algorithms.test.js && node tests/clap-regressions.test.js && node tests/clap-trajectory.test.js && node tests/clap-rhythm.test.js && node tests/inference-backend.test.js && node tests/camera.test.js && node tests/diagnostics.test.js && node tests/auto-profile.test.js && node tests/motion.test.js && node tests/frame-fusion.test.js && node tests/frame-cadence.test.js",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "dev": "node scripts/prepare-assets.mjs && vite",
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "preview": "vite preview --host 127.0.0.1",
+    "db:migrate:local": "node scripts/dev-migrate.mjs",
+    "test:browser": "node tests/browser-mvp.mjs",
+    "test:browser:model": "node tests/browser-model.mjs",
+    "test:browser:auto": "node tests/browser-auto-start.mjs",
+    "test:browser:weekly": "node tests/browser-weekly.mjs",
+    "test:browser:fixes": "node tests/browser-rating-fixes.mjs"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@mediapipe/tasks-vision": "0.10.32",
-    "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^6.1.1",
-    "dotenv": "^17.2.3",
-    "express": "^4.21.2",
-    "lucide-react": "^0.546.0",
-    "motion": "^12.23.24",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^8.3.0"
+    "@mediapipe/tasks-vision": "0.10.32"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "autoprefixer": "^10.4.21",
-    "esbuild": "^0.25.0",
-    "sharp": "^0.35.5",
-    "tailwindcss": "^4.3.3",
-    "tsx": "^4.21.0",
-    "typescript": "^7.0.2",
-    "vite-plugin-pwa": "^2.0.0"
+    "@cloudflare/vite-plugin": "1.37.1",
+    "@openai/sites-vite-plugin": "0.2.0",
+    "esbuild": "0.28.2",
+    "vite": "8.0.14",
+    "wrangler": "4.92.0"
   }
 }

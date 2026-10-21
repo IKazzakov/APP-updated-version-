@@ -1,8 +1,7 @@
 {
-  "name": "Счётчик упражнений",
-  "description": "Приседания и движения ладоней с помощью камеры вашего Android устройства.",
+  "name": "Движение · Счётчик приседаний",
+  "description": "Приседания, дневные задания, минутные тренировки, дуэли и недельные рейтинги.",
   "requestFramePermissions": [
     "camera"
-  ],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  ]
 }
