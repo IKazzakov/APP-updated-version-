@@ -8,6 +8,3 @@ for(const m of manifest){const data=await readFile(`public/assets/models/${m.fil
 console.log('Local model hashes and version-matched WASM verified');
 
 await build({entryPoints:['src/vision.worker.js'],bundle:true,format:'iife',platform:'browser',target:'chrome110',outfile:'public/assets/vision.worker.js',minify:true});
-await build({entryPoints:['src/motion.worker.js'],bundle:true,format:'iife',platform:'browser',target:'chrome110',outfile:'public/assets/motion.worker.js',minify:true});
-await import('./generate-icons.mjs');
-

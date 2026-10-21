@@ -7,9 +7,20 @@ export class SquatCounter {
     this.baseHeight=null;this.baseLeg=null;this.candidate=null;this.downAt=null;
     this.standAt=null;this.bottomAt=null;this.returnAt=null;this.knee.reset();this.height.reset();
   }
+  standingReference(){return this.phase==='standing'?{side:this.side,baseHeight:this.baseHeight,baseLeg:this.baseLeg}:null;}
+  confirmStandingAtStart(reference,f){
+    // A timed start may reuse the already calibrated body scale, never an old
+    // movement. The FIRST observed frame inside the round must still be
+    // standing. A crouched/missing first frame keeps normal baseline recovery.
+    if(!reference||!f?.valid||f.side!==reference.side||!f.upright||f.angle<C.standAngle||
+      ![reference.baseHeight,reference.baseLeg,f.height,f.leg].every(Number.isFinite)||reference.baseLeg<=0||f.leg<=0||
+      Math.abs(reference.baseHeight/reference.baseLeg-f.height/f.leg)>=C.returnDrop)return false;
+    this.phase='standing';this.side=reference.side;this.baseHeight=reference.baseHeight;this.baseLeg=reference.baseLeg;
+    this.reason='Исходное положение подтверждено';return true;
+  }
   view(extra={}){return {phase:this.phase,reason:this.reason,ready:this.phase!=='baseline',hint:this.phase==='baseline'?'Встаньте прямо':this.phase==='standing'?'Опускайтесь':'Вернитесь в исходное положение',increment:0,...extra};}
   update(f,t){
-    if(!f?.valid){this.reset(f?.reason||'Плохо видно тело');return this.view({tracking:false});}
+    if(!f?.valid||![f.angle,f.height,f.leg].every(Number.isFinite)||f.leg<=0){this.reset(f?.reason||'Не удаётся распознать движение');return this.view({tracking:false});}
     if(this.last!==null&&(t-this.last>C.maxGapMs||t<=this.last))this.reset('Пропуск кадров: встаньте прямо');
     if(this.side&&f.side!==this.side)this.reset('Смена стороны: встаньте прямо');
     this.side=f.side;this.last=t;
@@ -45,12 +56,22 @@ export class SquatCounter {
 // standing, so a different projection cannot finish an old repetition.
 export function squatFeatures(points,w,h,preferred){
   if(!points||points.length<33)return {valid:false,reason:'Встаньте в кадр'};
-  const choices=[{name:'left',ids:[11,23,25,27,29,31]},{name:'right',ids:[12,24,26,28,30,32]}].map(s=>({...s,score:Math.min(...s.ids.map(i=>Math.min(points[i].visibility??0,points[i].presence??1)))}));
+  if(!(w>0&&h>0))return {valid:false,reason:'Не удаётся распознать движение'};
+  const confidence=i=>Math.min(points[i]?.visibility??0,points[i]?.presence??1);
+  const inFrame=i=>points[i]&&Number.isFinite(points[i].x)&&Number.isFinite(points[i].y)&&points[i].x>=0.01&&points[i].x<=0.99&&points[i].y>=0.01&&points[i].y<=0.99;
+  const choices=[{name:'left',ids:[11,23,25,27,29,31]},{name:'right',ids:[12,24,26,28,30,32]}].map(s=>({...s,score:Math.min(...s.ids.map(i=>confidence(i)))}));
   const best=choices.sort((a,b)=>b.score-a.score)[0];
   const locked=choices.find(s=>s.name===preferred);
   const side=locked?.score>=C.visibility?locked:best;
-  if(side.score<C.visibility)return {valid:false,reason:'Плохо видно тело'};
-  if(side.ids.some(i=>points[i].x<0.01||points[i].x>0.99||points[i].y<0.01||points[i].y>0.99))return {valid:false,reason:'Таз, колени и стопы должны быть в кадре'};
+  if(side.score<C.visibility){
+    // Name a missing body part only when the surrounding torso is reliable.
+    // Otherwise uncertainty does not justify guessing why detection failed.
+    const torso=Math.max(Math.min(confidence(11),confidence(23)),Math.min(confidence(12),confidence(24)));
+    if(torso>=C.visibility&&Math.max(confidence(25),confidence(26))<C.visibility)return {valid:false,reason:'Не видно колени'};
+    if(torso>=C.visibility&&Math.max(confidence(27),confidence(28))<C.visibility)return {valid:false,reason:'Не видно стопы — тело должно быть целиком в кадре'};
+    return {valid:false,reason:'Не удаётся распознать движение'};
+  }
+  if(side.ids.some(i=>!inFrame(i)))return {valid:false,reason:'Отойдите дальше: таз, колени и стопы должны быть в кадре'};
   const [shoulder,hip,knee,ankle]=side.ids.slice(0,4).map(i=>pixel(points[i],w,h));
   const leg=distance(hip,knee)+distance(knee,ankle),a=angle(hip,knee,ankle);
   if(!Number.isFinite(a)||leg<0.2*h)return {valid:false,reason:'Подойдите ближе: плохо видно тело'};
