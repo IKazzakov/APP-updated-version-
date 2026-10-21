@@ -1,0 +1,23 @@
+[
+  {
+    "file": "pose_landmarker_full.task",
+    "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad",
+    "bytes": 9398198,
+    "source": "https://raw.githubusercontent.com/ros4hri/hri_body_detect/ae918b9ac86cfa79b649bfb6a48fe4da3bc32cce/hri_body_detect/weights/pose_landmarker_full.task",
+    "upstream": "https://storage.googleapis.com/mediapipe-models/"
+  },
+  {
+    "file": "pose_landmarker_lite.task",
+    "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+    "bytes": 5777746,
+    "source": "https://raw.githubusercontent.com/israelo19/mayday/d029adde26d0aba5fde47828a7eee06af86419c0/public/models/pose_landmarker_lite.task",
+    "upstream": "https://storage.googleapis.com/mediapipe-models/"
+  },
+  {
+    "file": "hand_landmarker.task",
+    "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+    "bytes": 7819105,
+    "source": "https://raw.githubusercontent.com/dailymycode/handscanner/f8f107dacdaf457f383e7ebe53e2bbf912374a99/hand_landmarker.task",
+    "upstream": "https://storage.googleapis.com/mediapipe-models/"
+  }
+]

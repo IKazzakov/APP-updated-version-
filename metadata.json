@@ -1,0 +1,8 @@
+{
+  "name": "Счётчик упражнений",
+  "description": "Приседания и движения ладоней с помощью камеры вашего Android устройства.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

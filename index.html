@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#f6f7f2">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Счётчик">
+  <title>Счётчик упражнений</title>
+  <meta name="description" content="Приседания и движения ладоней с помощью камеры вашего Android устройства.">
+  <meta property="og:title" content="Счётчик упражнений">
+  <meta property="og:description" content="Приседания и движения ладоней с помощью камеры вашего Android устройства.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+</head>
+<body>
+<div class="app">
+<header class="topbar"><a class="brand" href="./" aria-label="Счётчик упражнений, главная"><span class="brand-icon"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>движение<span class="brand-dot">.</span></span></a><div class="topbar-actions"><button id="pwa-install-btn" class="install-pwa-btn" aria-label="Установить как Android-приложение" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="3"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg><span>Установить</span></button><span class="privacy-badge"><span class="tiny-lock">▣</span> Только на устройстве</span></div></header>
+<main>
+<div class="intro"><div><p class="eyebrow">ВАШ РИТМ. ВАШ ПРОГРЕСС.</p><h1>Счётчик упражнений<span>.</span></h1><p class="subtitle">Двигайтесь. Камера посчитает повторения.</p></div><span class="version-tag">КАМЕРА + ДВИЖЕНИЕ</span></div>
+<div class="mode-tabs" role="group" aria-label="Выбор упражнения"><button id="mode-squat" class="mode active" aria-pressed="true"><span class="mode-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="14" cy="4" r="2"/><path d="m12 8-3 5 6 2-1 6M12 8l5 4h4M9 13l-5 1-2 5"/></svg></span>Приседания</button><button id="mode-clap" class="mode" aria-pressed="false"><span class="mode-icon" aria-hidden="true">✧</span>Хлопки ладонями</button></div>
+<div class="workspace">
+<section class="camera-panel" aria-label="Камера и распознавание">
+<div class="panel-heading"><span><span class="status-dot" id="camera-dot"></span><span id="camera-status">Камера выключена</span></span><button id="switch-camera" class="icon-button" aria-label="Переключить переднюю и заднюю камеру" title="Переключить камеру">⟳ <span>Камера</span></button></div>
+<div class="viewport" id="viewport"><div class="video-layer" id="video-layer"><video id="video" autoplay muted playsinline></video><canvas id="overlay" aria-hidden="true"></canvas></div><div class="camera-empty" id="camera-empty"><div class="camera-glyph" aria-hidden="true"><svg viewBox="0 0 48 48" fill="none"><rect x="7" y="14" width="34" height="25" rx="6" stroke="currentColor" stroke-width="2"/><path d="m16 14 3-5h10l3 5" stroke="currentColor" stroke-width="2"/><circle cx="24" cy="26" r="7" stroke="currentColor" stroke-width="2"/></svg></div><h2>Здесь появится ваша камера</h2><p>Нажмите «Начать» и разрешите доступ.<br>Всё распознавание — на вашем устройстве.</p></div><div class="camera-label" id="camera-label" hidden><span></span> ПРЯМОЙ ЭФИР</div><span class="orientation-note" id="facing-label">Передняя камера · зеркало</span></div>
+<div class="camera-bottom"><label class="switch-label"><input type="checkbox" id="show-points" checked><span class="switch" aria-hidden="true"></span>Показывать точки</label><span class="no-record"><span aria-hidden="true">◉</span> Без записи</span></div>
+</section>
+<section class="session-panel" aria-label="Счётчик и управление">
+<div class="counter-card"><div class="counter-heading"><span class="eyebrow" id="counter-label">ПРИСЕДАНИЯ</span><span class="session-tag">ЭТОТ СЕАНС</span></div><div class="count" id="count" role="status" aria-live="polite" aria-label="Повторений: 0">0</div><span class="count-caption">повторений</span><div class="cycle-progress" id="cycle-progress" aria-hidden="true"><i></i><i></i><i></i></div><div class="action-hint"><span id="hint-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m7 17 10-10M7 7h10v10"/></svg></span><div><h2 id="state">Камера выключена</h2><p id="hint">Включите камеру, чтобы начать.</p></div></div><div class="model-state"><span class="status-dot" id="model-dot"></span><span id="model-status" role="status">Распознавание ещё не запущено</span></div></div>
+<div class="controls"><button id="start" class="button primary">Начать</button><button id="pause" class="button secondary" disabled>Пауза</button><button id="reset" class="button secondary">↺ Сбросить</button><button id="stop" class="button text-button" disabled>Выключить камеру</button></div>
+<div class="error-box" id="error-box" role="alert" hidden></div>
+<div class="setup-card"><span class="step-number">01</span><div><h3>Подготовьте место</h3><p id="setup-text">Поставьте телефон устойчиво в 2–3 метрах. Встаньте боком или немного под углом. Таз, колени и стопы должны быть видны.</p><p class="setup-note" id="mode-note">Считаем полный цикл: вниз и снова вверх.</p></div></div>
+</section></div>
+<details class="diagnostics" id="diagnostics"><summary><span><span aria-hidden="true">⌁</span> Диагностика</span><span class="details-caption">Модели и состояние сеанса <b>＋</b></span></summary><div class="diagnostics-content"><div class="diag-settings"><label>Модель приседаний<select id="pose-model"><option value="full">Full · точнее (по умолчанию)</option><option value="lite">Lite · легче для устройства</option></select></label><p>Если изображение распознаётся медленно, выберите Lite. При смене модели движение начнётся заново.</p></div><dl id="diag-values"></dl><p class="diag-help">После серии движений нажмите кнопку и вставьте отчёт в чат. Все нужные показатели собираются автоматически.</p>
+<button id="copy" class="button secondary">Скопировать диагностику</button><p id="copy-status" role="status" aria-live="polite"></p>
+<div class="report-panel"><label for="copy-fallback">Отчёт для отправки в чат</label><p class="diag-help">Здесь появится тот же текст, который копирует кнопка. Его можно выделить и скопировать вручную.</p><textarea id="copy-fallback" readonly spellcheck="false" placeholder="Нажмите «Скопировать диагностику», чтобы подготовить отчёт." aria-label="Полный текст краткого отчёта для отправки в чат"></textarea><button id="select-report" class="button secondary" disabled>Выделить отчёт целиком</button></div>
+<details class="journal"><summary>Подробный журнал</summary><p class="diag-help">Для обычной проверки достаточно отчёта выше. Полный журнал можно сохранить отдельным файлом.</p><button id="download-diagnostics" class="button secondary">Скачать полный журнал</button><pre id="diag-log"></pre></details></div></details>
+<div class="footnote"><span aria-hidden="true">⌑</span><p>Видео обрабатывается в вашем браузере и никуда не отправляется. Счётчики хранятся до перезагрузки страницы. Приложение считает движения и не даёт медицинской оценки техники.</p></div>
+</main><footer><span>Маленькие движения. Заметный прогресс.</span><span>СЧЁТЧИК УПРАЖНЕНИЙ / 1.4.1</span></footer>
+</div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
