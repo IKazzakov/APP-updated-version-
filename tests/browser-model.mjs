@@ -1,9 +1,6 @@
 // Browser integration against the actual Pose Full Worker/WASM. Chromium's
 // built-in fake camera contains no human, so this verifies loading/inference,
-// controls and errors, never recognition accuracy on a real phone. WebGL is
-// disabled to exercise the real CPU fallback in headless Linux. Frames are
-// copied through ImageData to avoid software video-decoder GPU handles; the
-// original camera pixels still run through the actual model and WASM.
+// controls and errors, never recognition accuracy on a real phone.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir,writeFile} from 'node:fs/promises';
@@ -14,19 +11,10 @@ catch{({chromium}=require('/opt/codex/runtimes/codex-primary-runtime/dependencie
 const origin=process.env.MODEL_TEST_ORIGIN||'http://127.0.0.1:4177';
 const browser=await chromium.launch({
   executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,
-  args:['--no-sandbox','--disable-webgl','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream'],
+  args:['--no-sandbox','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream'],
 });
 const results=[],errors=[];let currentPage;
 async function profilePage(context){
-  await context.addInitScript(()=>{
-    const create=window.createImageBitmap.bind(window);
-    window.createImageBitmap=(source,...args)=>{
-      if(!(source instanceof HTMLVideoElement))return create(source,...args);
-      const canvas=document.createElement('canvas');canvas.width=source.videoWidth;canvas.height=source.videoHeight;
-      const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(source,0,0);
-      return create(ctx.getImageData(0,0,canvas.width,canvas.height));
-    };
-  });
   const page=await context.newPage();currentPage=page;page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`${origin}${process.env.MODEL_TEST_LOGIN_PATH||'/signin-with-chatgpt?return_to=%2F'}`);
   await page.waitForFunction(()=>document.getElementById('connection').textContent.includes('подтверждён'),null,{timeout:20000});
