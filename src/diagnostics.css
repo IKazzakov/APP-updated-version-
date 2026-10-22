@@ -1,12 +1,122 @@
 /* Diagnostics is mounted independently of the active screen. */
-body{padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
-.diagnostics-dock{position:fixed;bottom:0;left:0;right:0;z-index:40;margin:0;border:0;border-top:1px solid #cbd6c2;border-radius:16px 16px 0 0;background:#fff;box-shadow:0 -4px 24px #26302412;padding-bottom:env(safe-area-inset-bottom,0px)}
-.diagnostics-dock>summary{min-height:54px;padding:14px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;list-style:none}
-.diagnostics-dock>summary::-webkit-details-marker{display:none}
-.diagnostics-dock>summary:after{content:'⌃';font-size:20px}.diagnostics-dock[open]>summary:after{content:'⌄'}
-.diagnostics-dock>summary span{font-size:11px;color:#66755b;flex:1;text-align:right}
-.diagnostics-dock .diagnostics-content{max-height:65dvh;overflow-y:auto;overscroll-behavior:contain;padding:16px 20px 24px}
-.diagnostics-dock h2{font-size:15px;margin:0 0 12px}.diagnostics-dock input,.diagnostics-dock textarea{width:100%;box-sizing:border-box;padding:10px;margin:8px 0;border:1px solid var(--line);border-radius:8px}
-.diagnostics-dock textarea{min-height:130px}.diagnostics-dock #diag-values{display:grid;grid-template-columns:1fr 1fr;gap:7px;font-size:12px}.diagnostics-dock dd{margin:0;text-align:right}
-.diagnostics-toolbar{display:flex;gap:8px;flex-wrap:wrap}.activity-list{list-style:none;padding:0;margin:14px 0}.activity-entry{display:flex;gap:12px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}.activity-entry time{font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}.activity-entry strong{font-weight:500}.activity-entry small{display:block;overflow-wrap:anywhere;color:var(--muted);font-size:10px;margin-top:3px}.activity-error strong{color:#a33b30}.diagnostics-connection{padding-bottom:14px;border-bottom:1px solid var(--line)}
-@media(min-width:900px){.diagnostics-dock>summary,.diagnostics-dock .diagnostics-content{max-width:1000px;margin:auto}}
+body {
+  padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+}
+.diagnostics-dock {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid #cbd6c2;
+  border-radius: 16px 16px 0 0;
+  background: #fff;
+  box-shadow: 0 -4px 24px #26302412;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.diagnostics-dock > summary {
+  min-height: 54px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  list-style: none;
+}
+.diagnostics-dock > summary::-webkit-details-marker {
+  display: none;
+}
+.diagnostics-dock > summary:after {
+  content: '⌃';
+  font-size: 20px;
+}
+.diagnostics-dock[open] > summary:after {
+  content: '⌄';
+}
+.diagnostics-dock > summary span {
+  font-size: 11px;
+  color: #66755b;
+  flex: 1;
+  text-align: right;
+}
+.diagnostics-dock .diagnostics-content {
+  max-height: 65dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px 24px;
+}
+.diagnostics-dock h2 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+.diagnostics-dock input,
+.diagnostics-dock textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.diagnostics-dock textarea {
+  min-height: 130px;
+}
+.diagnostics-dock #diag-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  font-size: 12px;
+}
+.diagnostics-dock dd {
+  margin: 0;
+  text-align: right;
+}
+.diagnostics-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0;
+}
+.activity-entry {
+  display: flex;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.activity-entry time {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.activity-entry strong {
+  font-weight: 500;
+}
+.activity-entry small {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+}
+.activity-error strong {
+  color: #a33b30;
+}
+.diagnostics-connection {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 900px) {
+  .diagnostics-dock > summary,
+  .diagnostics-dock .diagnostics-content {
+    max-width: 1000px;
+    margin: auto;
+  }
+}

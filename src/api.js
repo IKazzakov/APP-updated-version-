@@ -1,7 +1,13 @@
-import {activity,activityRoute} from './activity-log.js';
-import {getApiBaseUrl, isNativeApp, nativeApiRequest} from './platform.js';
-import {deviceSecret,usesDeviceAuth,requireDeviceAuth,newDeviceSecret,forgetDeviceSecret} from './device-auth.js';
-export {getApiBaseUrl} from './platform.js';
+import { activity, activityRoute } from './activity-log.js';
+import { getApiBaseUrl, isNativeApp, nativeApiRequest } from './platform.js';
+import {
+  deviceSecret,
+  usesDeviceAuth,
+  requireDeviceAuth,
+  newDeviceSecret,
+  forgetDeviceSecret,
+} from './device-auth.js';
+export { getApiBaseUrl } from './platform.js';
 
 const MESSAGES = Object.freeze({
   SIGN_IN_REQUIRED: 'Войдите в профиль, чтобы сохранить результат.',
@@ -11,7 +17,8 @@ const MESSAGES = Object.freeze({
   INVALID_ID: 'Не удалось отправить данные. Обновите страницу.',
   INVALID_NAME: 'Укажите имя от 1 до 40 символов.',
   INVALID_TIME_ZONE: 'Часовой пояс не распознан. Проверьте настройки устройства.',
-  INVALID_EVENT_TIME: 'Не удалось подтвердить время повторений. Проверьте дату и время устройства; данные сохранены для повторной отправки.',
+  INVALID_EVENT_TIME:
+    'Не удалось подтвердить время повторений. Проверьте дату и время устройства; данные сохранены для повторной отправки.',
   ROUND_NOT_FOUND: 'Раунд не найден или недоступен.',
   INVALID_ROUND_TIME: 'Время повторения не относится к этому раунду. Данные требуют проверки.',
   ROUND_INTERRUPTED: 'Раунд прерван. Сохранённые повторения остаются в дневном задании.',
@@ -56,21 +63,34 @@ const MESSAGES = Object.freeze({
   OUTBOX_CONFLICT: 'Локальные данные повторения не совпали. Требуется проверка.',
   SERVER_ERROR: 'Не удалось сохранить данные на сервере. Повторная отправка безопасна.',
   API_NOT_FOUND: 'По этому адресу нет API приложения. Проверьте опубликованный адрес сервера.',
-  API_RESPONSE_INVALID: 'Сервер вернул страницу вместо данных API. Проверьте адрес и доступ к серверу.',
-  DEVICE_AUTH_REQUIRED: 'Начните в гостевом режиме, чтобы создать личный профиль на этом устройстве.',
+  API_RESPONSE_INVALID:
+    'Сервер вернул страницу вместо данных API. Проверьте адрес и доступ к серверу.',
+  DEVICE_AUTH_REQUIRED:
+    'Начните в гостевом режиме, чтобы создать личный профиль на этом устройстве.',
   SESSION_REVOKED: 'Сессия завершена. Нажмите гостевой старт ещё раз, чтобы создать новый профиль.',
   RATE_LIMITED: 'Слишком много новых профилей. Подождите минуту и повторите.',
 });
 
-let connectionDiagnostic = {status: null, code: 'NOT_CHECKED'};
-export const getConnectionDiagnostic = () => ({...connectionDiagnostic});
+let connectionDiagnostic = { status: null, code: 'NOT_CHECKED' };
+export const getConnectionDiagnostic = () => ({ ...connectionDiagnostic });
 
 export class ApiError extends Error {
   constructor(code = 'SERVER_ERROR', status = 0) {
     const normalized = String(code).toUpperCase();
-    const userMessage = MESSAGES[normalized] || (status === 401 ? MESSAGES.AUTH_REQUIRED : status === 403 ? MESSAGES.FORBIDDEN : status === 404 ? MESSAGES.NOT_FOUND : MESSAGES.SERVER_ERROR);
+    const userMessage =
+      MESSAGES[normalized] ||
+      (status === 401
+        ? MESSAGES.AUTH_REQUIRED
+        : status === 403
+          ? MESSAGES.FORBIDDEN
+          : status === 404
+            ? MESSAGES.NOT_FOUND
+            : MESSAGES.SERVER_ERROR);
     super(userMessage);
-    this.name = 'ApiError'; this.code = normalized; this.status = status; this.userMessage = userMessage;
+    this.name = 'ApiError';
+    this.code = normalized;
+    this.status = status;
+    this.userMessage = userMessage;
   }
 }
 
@@ -92,67 +112,124 @@ export function setTestUser(name) {
 export function getTestUserId(name) {
   if (!name) return '';
   const bytes = new TextEncoder().encode(name.trim().toLowerCase());
-  return 'u_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return 'u_' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function signInGuest(name){
-  const base=getApiBaseUrl();
-  if(usesDeviceAuth(base)){
+export async function signInGuest(name) {
+  const base = getApiBaseUrl();
+  if (usesDeviceAuth(base)) {
     let secret;
-    try{secret=deviceSecret(base)||newDeviceSecret(base);}catch{throw new ApiError('LOCAL_STORAGE');}
-    try{await api('auth/guest',{method:'POST',body:{secret}});}
-    catch(error){if(error.code==='SESSION_REVOKED')forgetDeviceSecret(base);throw error;}
+    try {
+      secret = deviceSecret(base) || newDeviceSecret(base);
+    } catch {
+      throw new ApiError('LOCAL_STORAGE');
+    }
+    try {
+      await api('auth/guest', { method: 'POST', body: { secret } });
+    } catch (error) {
+      if (error.code === 'SESSION_REVOKED') forgetDeviceSecret(base);
+      throw error;
+    }
   }
   setTestUser(name);
 }
-export async function signOutDevice(){
-  const base=getApiBaseUrl();
-  if(usesDeviceAuth(base)&&deviceSecret(base)){
-    try{await api('auth/logout',{method:'POST',body:{}});}catch(error){if(error.status!==401)throw error;}
+export async function signOutDevice() {
+  const base = getApiBaseUrl();
+  if (usesDeviceAuth(base) && deviceSecret(base)) {
+    try {
+      await api('auth/logout', { method: 'POST', body: {} });
+    } catch (error) {
+      if (error.status !== 401) throw error;
+    }
     forgetDeviceSecret(base);
   }
   setTestUser('');
 }
 
-export async function api(path, {method = 'GET', body, keepalive = false} = {}) {
-  const relative = String(path).replace(/^\/api\/?/, '').replace(/^\//, '');
-  if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..')) throw new ApiError('INVALID_REQUEST', 400);
-  const started=performance.now(),route=activityRoute(relative);
-  activity.record('request.start',{route,method});
+export async function api(path, { method = 'GET', body, keepalive = false } = {}) {
+  const relative = String(path)
+    .replace(/^\/api\/?/, '')
+    .replace(/^\//, '');
+  if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..'))
+    throw new ApiError('INVALID_REQUEST', 400);
+  const started = performance.now(),
+    route = activityRoute(relative);
+  activity.record('request.start', { route, method });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const baseUrl = getApiBaseUrl();
-    const secret=deviceSecret(baseUrl);
-    if(secret)requireDeviceAuth(baseUrl);
+    const secret = deviceSecret(baseUrl);
+    if (secret) requireDeviceAuth(baseUrl);
     const testUser = getTestUser();
     const testUserId = getTestUserId(testUser);
     const headers = {
       Accept: 'application/json',
-      ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
-      ...(secret&&relative!=='auth/guest'?{Authorization:`Bearer ${secret}`} : {}),
-      ...(!usesDeviceAuth(baseUrl)&&testUserId ? {'x-test-user-id': testUserId} : {})
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(secret && relative !== 'auth/guest' ? { Authorization: `Bearer ${secret}` } : {}),
+      ...(!usesDeviceAuth(baseUrl) && testUserId ? { 'x-test-user-id': testUserId } : {}),
     };
-    const response = isNativeApp() ? await nativeApiRequest(`${baseUrl}/${relative}`, {
-      method, headers, body, signal: controller.signal,
-    }) : await fetch(`${baseUrl}/${relative}`, {
-      method, credentials: 'same-origin', cache: 'no-store', keepalive,
-      headers,
-      ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: controller.signal,
-    });
-    connectionDiagnostic = {status: response.status, code: 'OK'};
+    const response = isNativeApp()
+      ? await nativeApiRequest(`${baseUrl}/${relative}`, {
+          method,
+          headers,
+          body,
+          signal: controller.signal,
+        })
+      : await fetch(`${baseUrl}/${relative}`, {
+          method,
+          credentials: 'same-origin',
+          cache: 'no-store',
+          keepalive,
+          headers,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: controller.signal,
+        });
+    connectionDiagnostic = { status: response.status, code: 'OK' };
     const data = await response.json().catch(() => null);
-    if(data?.error?.code==='DEVICE_AUTH_REQUIRED'||data?.error?.code==='SESSION_REVOKED')requireDeviceAuth(baseUrl);
-    if (response.status === 404 && !data?.error?.code && !data?.code) throw new ApiError('API_NOT_FOUND', 404);
-    if (!response.ok) throw new ApiError(data?.error?.code || data?.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'SERVER_ERROR'), response.status);
-    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('API_RESPONSE_INVALID', response.status);
-    if (relative === 'state' && (!Number.isFinite(data.serverNow) || !Array.isArray(data.days) || !Array.isArray(data.rounds) || !Array.isArray(data.competitions))) throw new ApiError('API_RESPONSE_INVALID', response.status);
-    activity.record('request.end',{route,method,status:response.status,ms:performance.now()-started});
+    if (data?.error?.code === 'DEVICE_AUTH_REQUIRED' || data?.error?.code === 'SESSION_REVOKED')
+      requireDeviceAuth(baseUrl);
+    if (response.status === 404 && !data?.error?.code && !data?.code)
+      throw new ApiError('API_NOT_FOUND', 404);
+    if (!response.ok)
+      throw new ApiError(
+        data?.error?.code ||
+          data?.code ||
+          (response.status === 401 ? 'AUTH_REQUIRED' : 'SERVER_ERROR'),
+        response.status,
+      );
+    if (!data || typeof data !== 'object' || Array.isArray(data))
+      throw new ApiError('API_RESPONSE_INVALID', response.status);
+    if (
+      relative === 'state' &&
+      (!Number.isFinite(data.serverNow) ||
+        !Array.isArray(data.days) ||
+        !Array.isArray(data.rounds) ||
+        !Array.isArray(data.competitions))
+    )
+      throw new ApiError('API_RESPONSE_INVALID', response.status);
+    activity.record('request.end', {
+      route,
+      method,
+      status: response.status,
+      ms: performance.now() - started,
+    });
     return data;
   } catch (error) {
-    const failure = error instanceof ApiError ? error : new ApiError(error?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK');
-    activity.record('request.error',{route,method,status:failure.status,ms:performance.now()-started,code:failure.code});
-    connectionDiagnostic = {status: failure.status || null, code: failure.code};
+    const failure =
+      error instanceof ApiError
+        ? error
+        : new ApiError(error?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK');
+    activity.record('request.error', {
+      route,
+      method,
+      status: failure.status,
+      ms: performance.now() - started,
+      code: failure.code,
+    });
+    connectionDiagnostic = { status: failure.status || null, code: failure.code };
     throw failure;
-  } finally { clearTimeout(timeout); }
+  } finally {
+    clearTimeout(timeout);
+  }
 }
