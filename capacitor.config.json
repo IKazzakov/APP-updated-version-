@@ -1,13 +1,12 @@
 {
   "appId": "com.movement.squat",
   "appName": "Движение",
-  "webDir": "dist/client",
+  "webDir": "dist/android-client",
   "server": {
-    "androidScheme": "https",
-    "cleartext": true
+    "androidScheme": "https"
   },
   "android": {
-    "allowMixedContent": true,
+    "allowMixedContent": false,
     "webContentsDebuggingEnabled": true
   }
 }

@@ -158,5 +158,13 @@ npm run dev
 2. **Маршрутизация сетевых запросов в APK:**
    - В `src/api.js` добавлена автоматическая маршрутизация: при запуске внутри нативного WebView Capacitor сетевые запросы отправляются на публичный сервер приложения.
 3. **Команды синхронизации и сборки:**
-   - `npm run build:android`: собирает клиентскую часть и синхронизирует веб-ресурсы в нативный Android-каталог `android/app/src/main/assets/public`.
-   - `cd android && ./gradlew assembleDebug`: компилирует файл `app-debug.apk` в каталоге `android/app/build/outputs/apk/debug/`.
+   - `npm ci`: устанавливает закреплённые зависимости из `package-lock.json`.
+   - Нужны полный JDK 21, Android SDK 36 и Build Tools 36.0.0. Задайте `JAVA_HOME` и `ANDROID_HOME`; лицензии SDK должны быть приняты.
+   - `npm run build:android`: собирает веб-ресурсы, готовит отдельную папку `dist/android-client` без APK/архивов исходников и синхронизирует Capacitor; APK эта команда не компилирует.
+   - `npm run build:apk`: собирает веб-клиент, синхронизирует Capacitor, запускает Gradle, проверяет подпись/версию/ресурсы и сохраняет готовый `work/artifacts/app-debug.apk`.
+   - Копии создаются в `public/app-debug.apk` и `dist/client/app-debug.apk` для кнопки скачивания. Рядом находится SHA-256. Предыдущий APK не включается внутрь новой сборки.
+   - Версия Android автоматически берётся из `package.json`: для 2.5.0 это `versionName=2.5.0`, `versionCode=20500`.
+
+Нативные запросы выполняются через `CapacitorHttp`, с cookie-хранилищем Android и Origin публичного API. Это устраняет блокировку WebView CORS и отклонение POST сервером. Адрес по умолчанию сохранён из проекта; для другого сервера задайте `VITE_API_BASE_URL=https://ваш-сервер/api` **перед сборкой**. В браузере запросы остаются относительными `/api`. Приглашения из APK используют публичный адрес, а не `https://localhost`. Service Worker в APK не регистрируется. Во время тренировки экран удерживает нативный плагин `WorkoutScreen`, без зависимости от поддержки Web Wake Lock в WebView.
+
+Инструкция тестировщику и ограничения debug-сборки: [docs/ANDROID_TESTING.md](docs/ANDROID_TESTING.md).

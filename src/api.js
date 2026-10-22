@@ -1,3 +1,6 @@
+import {getApiBaseUrl, isNativeApp, nativeApiRequest} from './platform.js';
+export {getApiBaseUrl} from './platform.js';
+
 const MESSAGES = Object.freeze({
   SIGN_IN_REQUIRED: 'Войдите в профиль, чтобы сохранить результат.',
   STORAGE_UNAVAILABLE: 'Серверное хранилище временно недоступно. Повторите позже.',
@@ -82,13 +85,6 @@ export function getTestUserId(name) {
   return 'u_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function getApiBaseUrl() {
-  if (typeof window !== 'undefined' && (window.Capacitor?.isNativePlatform?.() || window.location.protocol === 'capacitor:')) {
-    return 'https://ais-pre-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api';
-  }
-  return '/api';
-}
-
 export async function api(path, {method = 'GET', body, keepalive = false} = {}) {
   const relative = String(path).replace(/^\/api\/?/, '').replace(/^\//, '');
   if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..')) throw new ApiError('INVALID_REQUEST', 400);
@@ -103,9 +99,10 @@ export async function api(path, {method = 'GET', body, keepalive = false} = {}) 
       ...(testUserId ? {'x-test-user-id': testUserId} : {})
     };
     const baseUrl = getApiBaseUrl();
-    const isCross = baseUrl.startsWith('http');
-    const response = await fetch(`${baseUrl}/${relative}`, {
-      method, credentials: isCross ? 'include' : 'same-origin', cache: 'no-store', keepalive,
+    const response = isNativeApp() ? await nativeApiRequest(`${baseUrl}/${relative}`, {
+      method, headers, body, signal: controller.signal,
+    }) : await fetch(`${baseUrl}/${relative}`, {
+      method, credentials: 'same-origin', cache: 'no-store', keepalive,
       headers,
       ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: controller.signal,
     });

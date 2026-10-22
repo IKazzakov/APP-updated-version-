@@ -12,6 +12,7 @@ import {RoundSound} from './sound.js';
 import {serverTimeAtReceipt} from './round-clock.js';
 import {WeeklyUI} from './weekly.js';
 import {ScreenWakeLock} from './wake-lock.js';
+import {isNativeApp, invitationOrigin} from './platform.js';
 
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -25,7 +26,7 @@ const diagnostics=new Diagnostics();
 const cameraLease=new CameraLease();
 const wakeLock=new ScreenWakeLock();
 const sound=new RoundSound({onChange:message=>{text('sound-status',message);if(lastTraining)renderTraining(engine.state);}});
-const preparation=new RoundPreparation({onChange:s=>{if(['idle','waiting','error'].includes(s.status)){sound.stop();wakeLock.release();}if(lastTraining)renderTraining(engine.state);},onSignal:announceSignal,onStart:launchRound});
+const preparation=new RoundPreparation({onChange:s=>{if(['idle','waiting','error'].includes(s.status))sound.stop();if(['idle','error'].includes(s.status))wakeLock.release();if(lastTraining)renderTraining(engine.state);},onSignal:announceSignal,onStart:launchRound});
 const inviteMatch=location.hash.match(/^#invite=([a-f0-9]{64})$/);
 let receivedInvite=inviteMatch?.[1]||null;
 if(receivedInvite){sessionStorage.setItem('movement.receivedInvite',receivedInvite);history.replaceState(null,'',location.pathname+location.search);}
@@ -316,7 +317,7 @@ function token(){return [...crypto.getRandomValues(new Uint8Array(32))].map(n=>n
 function inviteKey(id){return `movement.invite.${state.profile.id}.${id}`;}
 function readInvite(id){try{return JSON.parse(localStorage.getItem(inviteKey(id))||'null');}catch{return null;}}
 function showCreatedInvite(invitation){
-  if(!invitation)return;activeInvitation=invitation;$('invite-created').hidden=false;$('invite-url').value=`${location.origin}/#invite=${invitation.token}`;
+  if(!invitation)return;activeInvitation=invitation;$('invite-created').hidden=false;$('invite-url').value=`${invitationOrigin(location.origin)}/#invite=${invitation.token}`;
   $('cancel-created-challenge').hidden=!(state?.competitions.find(c=>c.id===invitation.id)?.canCancel??invitation.canCancel);
 }
 async function cancelChallenge(id){
@@ -385,7 +386,7 @@ window.addEventListener('storage',event=>{if(event.key?.startsWith('movement.'))
 document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelCountdown();wakeLock.release();}else{refreshQuietly();}});
 // Keep the interruption write small and synchronous to initiate while the page
 // is leaving. Server timeout also marks an unconfirmed attempt aborted.
-window.addEventListener('pagehide',()=>{cameraLease.release();wakeLock.release();const round=engine.clock.id;if(round&&engine.roundStatus!=='completed'){fetch(`/api/rounds/${round}/abort`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});}});
+window.addEventListener('pagehide',()=>{cameraLease.release();wakeLock.release();const round=engine.clock.id;if(round&&engine.roundStatus!=='completed'){api(`rounds/${round}/abort`,{method:'POST',body:{},keepalive:true}).catch(()=>{});}});
 const quickGuestBtn=$('quick-guest-btn');
 if(quickGuestBtn){
   quickGuestBtn.onclick=async()=>{
@@ -422,7 +423,8 @@ if(signOutBtn){
     text('profile-toggle','Мой профиль');
   };
 }
-if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')){
+if(isNativeApp())document.querySelector('.apk-download-box')?.setAttribute('hidden','');
+if(!isNativeApp() && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('/sw.js').catch(()=>{});
   });

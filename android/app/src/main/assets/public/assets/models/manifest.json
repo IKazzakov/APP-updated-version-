@@ -1,9 +1,0 @@
-[
-  {
-    "file": "pose_landmarker_full.task",
-    "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad",
-    "bytes": 9398198,
-    "source": "https://raw.githubusercontent.com/ros4hri/hri_body_detect/ae918b9ac86cfa79b649bfb6a48fe4da3bc32cce/hri_body_detect/weights/pose_landmarker_full.task",
-    "upstream": "https://storage.googleapis.com/mediapipe-models/"
-  }
-]
