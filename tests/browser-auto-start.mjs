@@ -8,6 +8,7 @@ const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'
 const results=[],errors=[];let page;
 try{
  const context=await browser.newContext({viewport:{width:393,height:852},isMobile:true,permissions:['camera']});
+ context.setDefaultTimeout(30000);
  await context.route('**/assets/vision.worker.js*',r=>r.fulfill({contentType:'text/javascript',body:POSE_WORKER}));
  // Observe actual Web Audio API scheduling, without replacing the audio engine.
  await context.addInitScript(()=>{window.testTones=[];const C=window.AudioContext;if(C){const create=C.prototype.createOscillator;C.prototype.createOscillator=function(){const node=create.call(this),start=node.start.bind(node);node.start=at=>{window.testTones.push({frequency:node.frequency.value,at,state:this.state});return start(at);};return node;};}});

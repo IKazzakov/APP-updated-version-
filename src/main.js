@@ -1,6 +1,6 @@
 import './style.css';
 import {Training} from './training.js';
-import {api,ApiError,getTestUser,setTestUser} from './api.js';
+import {api,ApiError,getTestUser,setTestUser,getConnectionDiagnostic} from './api.js';
 import {Outbox} from './outbox.js';
 import {Diagnostics} from './diagnostics.js';
 import {comparableRounds} from './progress.js';
@@ -12,7 +12,7 @@ import {RoundSound} from './sound.js';
 import {serverTimeAtReceipt} from './round-clock.js';
 import {WeeklyUI} from './weekly.js';
 import {ScreenWakeLock} from './wake-lock.js';
-import {isNativeApp, invitationOrigin} from './platform.js';
+import {isNativeApp, invitationOrigin, getApiBaseUrl, setNativeApiUrl, profileStorageId} from './platform.js';
 
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -20,10 +20,11 @@ const text=(id,value)=>{if($(id).textContent!==String(value))$(id).textContent=S
 const dateLabel=(value,options={day:'numeric',month:'short'})=>new Intl.DateTimeFormat('ru-RU',{...options,timeZone:state?.profile?.timeZone||'UTC'}).format(new Date(value));
 let state=null,outbox=null,outboxReady=false,tab='today',mode='practice',competitionId=null,busy=false,roundSaving=false,calendarOffset=0,refreshTimer=null,activeInvitation=null,pendingStart=null;
 let sync={pending:0,saving:false,error:null},persistenceError=false,lastTraining=null;
+let loading=false,loadError=null,localPracticeSession=false;
 let visualSignal=null;
 const pendingWrites=new Set();
 const diagnostics=new Diagnostics();
-const cameraLease=new CameraLease();
+const cameraLease=new CameraLease({native:isNativeApp()});
 const wakeLock=new ScreenWakeLock();
 const sound=new RoundSound({onChange:message=>{text('sound-status',message);if(lastTraining)renderTraining(engine.state);}});
 const preparation=new RoundPreparation({onChange:s=>{if(['idle','waiting','error'].includes(s.status))sound.stop();if(['idle','error'].includes(s.status))wakeLock.release();if(lastTraining)renderTraining(engine.state);},onSignal:announceSignal,onStart:launchRound});
@@ -46,8 +47,16 @@ function closeProfile(popHistory=false){
 function showError(message){$('app-error').hidden=!message;text('app-error',message||'');}
 function errorMessage(error){return error instanceof ApiError?error.userMessage:'Не удалось выполнить действие. Проверьте соединение и повторите попытку.';}
 function setConnection(){
-  const el=$('connection');el.classList.toggle('warning',!navigator.onLine||!!sync.error||persistenceError);
-  $('retry-sync').hidden=!sync.error;
+  const el=$('connection');el.classList.toggle('warning',!navigator.onLine||!!sync.error||persistenceError||!!loadError);
+  $('retry-sync').hidden=!sync.error&&!loadError;
+  $('retry-sync').disabled=loading;
+  text('retry-sync',outbox?'Повторить сохранение':'Повторить подключение');
+  const report=getConnectionDiagnostic();
+  text('server-result',loading?'Проверяем соединение…':`${report.status ? `HTTP ${report.status} · ` : ''}${report.code}`);
+  $('check-server').disabled=loading;
+  if(loading){el.textContent='Подключаемся к серверу…';return;}
+  if(!state?.profile){el.textContent=loading?'Подключаемся к серверу…':'Профиль не загружен. Камеру и подсчёт можно проверить в обычной тренировке.';return;}
+  if(loadError){el.textContent=errorMessage(loadError);return;}
   if(persistenceError){el.textContent='Не удалось записать повторение на устройстве. Сделайте паузу и освободите память.';return;}
   if(!navigator.onLine){el.textContent=`Нет сети. ${sync.pending?`Ожидают сохранения: ${sync.pending}. `:''}Подключитесь, чтобы подтвердить прогресс.`;return;}
   if(sync.error){el.textContent=`${sync.error} Ожидают сохранения: ${sync.pending??'—'}. ${sync.blocked?'Нажмите «Повторить сохранение» после устранения причины.':'Повторим отправку автоматически.'}`;return;}
@@ -55,7 +64,7 @@ function setConnection(){
   el.textContent=state?.profile?'Прогресс подтверждён сервером · видео остаётся на телефоне':'Загружаем ваш прогресс…';
 }
 async function applyState(next){
-  if(!next)return;
+  if(!next||!Number.isFinite(next.serverNow)||!Array.isArray(next.days)||!Array.isArray(next.rounds)||!Array.isArray(next.competitions))throw new ApiError('API_RESPONSE_INVALID',200);
   state=next;
   $('auth-panel').hidden=true;
   if(!state.profile){
@@ -64,23 +73,26 @@ async function applyState(next){
     state=await api('state');
   }
   if(!outbox){
-    outbox=new Outbox(state.profile.id,{api,onStatus:status=>{sync=status;if(status.state&&status.state.serverNow>=state.serverNow){state=status.state;renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();if(!status.pending&&!status.saving)refreshQuietly();}});
+    outbox=new Outbox(profileStorageId(state.profile.id),{api,onStatus:status=>{sync=status;if(status.state&&status.state.serverNow>=state.serverNow){state=status.state;renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();if(!status.pending&&!status.saving)refreshQuietly();}});
     try{await outbox.init();outboxReady=true;}catch(error){outbox.close();outbox=null;outboxReady=false;throw error;}
   }
   renderData();setConnection();renderTraining(engine.state);
 }
 async function load(){
-  showError('');
+  if(loading)return;
+  loading=true;loadError=null;showError('');setConnection();
   try{
     await applyState(await api('state'));
-    const ownRound=sessionStorage.getItem(`movement.active.${state.profile.id}`);
+    const ownRound=sessionStorage.getItem(`movement.active.${profileStorageId(state.profile.id)}`);
     const isReload=performance.getEntriesByType('navigation')[0]?.type==='reload'||document.wasDiscarded;
-    if(!isReload)sessionStorage.removeItem(`movement.active.${state.profile.id}`);
-    if(isReload&&state.activeRound?.id===ownRound){await api(`rounds/${ownRound}/abort`,{method:'POST',body:{}});sessionStorage.removeItem(`movement.active.${state.profile.id}`);try{localStorage.setItem(finalKey(),JSON.stringify({id:ownRound,status:'interrupted'}));}catch{}await applyState(await api('state'));showError('Предыдущая незавершённая попытка прервана. Её повторения останутся в дневном задании.');}
+    if(!isReload)sessionStorage.removeItem(`movement.active.${profileStorageId(state.profile.id)}`);
+    if(isReload&&state.activeRound?.id===ownRound){await api(`rounds/${ownRound}/abort`,{method:'POST',body:{}});sessionStorage.removeItem(`movement.active.${profileStorageId(state.profile.id)}`);try{localStorage.setItem(finalKey(),JSON.stringify({id:ownRound,status:'interrupted'}));}catch{}await applyState(await api('state'));showError('Предыдущая незавершённая попытка прервана. Её повторения останутся в дневном задании.');}
     await retryFinalization();
     const sent=await outbox.flush();if(sent)await applyState(sent);
     if(receivedInvite)await previewInvitation();
   }catch(error){
+    loadError=error;
+    $('auth-panel').hidden=false;
     if(error.status===401){
       $('auth-panel').hidden=false;
       const input=$('test-username-input');
@@ -88,14 +100,15 @@ async function load(){
       text('connection','Войдите, чтобы открыть свой профиль и результаты.');
     }
     else{showError(errorMessage(error));text('connection','Не удалось загрузить прогресс.');}
-    diagnostics.error(error.status===401?'AUTH_REQUIRED':'LOAD_FAILED');
-  }
+    diagnostics.error(error.status===401?'AUTH_REQUIRED':error.code);
+  }finally{loading=false;setConnection();renderTraining(engine.state);}
 }
 let quietBusy=false;
 async function refreshQuietly(){
-  if(quietBusy||!state?.profile||!navigator.onLine)return;
+  if(quietBusy||loading||!navigator.onLine)return;
+  if(!state?.profile){await load();return;}
   quietBusy=true;
-  try{await applyState(await api('state'));}catch{/* Pending state remains unconfirmed; next refresh retries. */}finally{quietBusy=false;}
+  try{await applyState(await api('state'));loadError=null;}catch{/* Pending state remains unconfirmed; next refresh retries. */}finally{quietBusy=false;}
 }
 function renderData(){
   const s=state;if(!s?.profile)return;
@@ -174,13 +187,16 @@ function chooseMode(next,id=null){
 }
 function renderTraining(s){
   lastTraining=s;updateDiagnostics(s);
-  if(!s.cameraOn&&!s.starting&&!busy)cameraLease.release();
+  if(!s.cameraOn&&!s.starting&&!busy){cameraLease.release();localPracticeSession=false;}
   text('count',s.count);$('count').setAttribute('aria-label',`Повторений: ${s.count}`);
   text('camera-status',s.starting?'Подготовка камеры…':s.cameraStatus);
   $('camera-empty').hidden=s.cameraOn;
   $('video-layer').classList.toggle('mirror',s.facing==='user');
   text('facing-label',s.facing==='user'?'Передняя камера · зеркало':'Задняя камера');
   const timed=mode!=='practice',running=s.roundStatus==='running';
+  const localPractice=localPracticeSession||!state?.profile||!outboxReady;
+  $('local-practice-note').hidden=!localPractice;
+  text('local-practice-note',timed?'Минутные раунды и дуэли требуют подключения к профилю. Выберите «Обычная тренировка», чтобы проверить камеру.':'Проверка без профиля: камера и счётчик работают. Повторения этого теста не сохраняются и не отправляются на сервер.');
   const preparing=timed&&preparation.pending,ps=preparation.status;
   text('state',ps==='error'?'Запуск не подтверждён':ps==='starting'?'Подтверждаем запуск…':ps==='countdown'?'Положение определено':ps==='waiting'?'Ожидаем исходное положение':s.paused?'Пауза':s.starting?'Загрузка модели':s.reason);
   text('hint',preparing?(s.poseReady?'Встаньте в кадр в исходное положение. Отсчёт начнётся автоматически':s.hint):s.hint);
@@ -201,12 +217,12 @@ function renderTraining(s){
   $('start').hidden=running||preparing;
   $('cancel-preparation').hidden=!preparing;
   $('sound-controls').hidden=!timed;
-  $('start').disabled=busy||roundSaving||s.starting||!state?.profile||!outboxReady||(!timed&&s.cameraOn&&!s.paused);
+  $('start').disabled=busy||roundSaving||s.starting||(timed&&localPractice)||(!timed&&s.cameraOn&&!s.paused);
   text('start',roundSaving?'Сохраняем результат…':timed?'Подготовиться':!s.cameraOn?'Начать':'Продолжить');
   $('diag-values').innerHTML=Object.entries({Модель:'Pose Landmarker Full',Правила:RULES_VERSION,Камера:s.resolution,'Кадров/с':s.fps,'Обработка, мс':s.inferenceMs,Состояние:s.phase}).map(([k,v])=>`<dt>${escape(k)}</dt><dd>${escape(v)}</dd>`).join('');
 }
 async function saveRepetition(event){
-  if(!outbox){engine.pause();showError('Нет подключения к профилю. Войдите и повторите попытку.');return;}
+  if(localPracticeSession||!outboxReady||!outbox)return;
   try{await outbox.add({id:crypto.randomUUID(),...event});persistenceError=false;}catch{persistenceError=true;engine.mode==='practice'?engine.pause():engine.abortRound('Не удалось сохранить повторение');diagnostics.error('LOCAL_STORAGE');setConnection();}
 }
 function announceSignal(kind){
@@ -215,12 +231,12 @@ function announceSignal(kind){
   if(kind==='end')visualSignal={message:'Время вышло',until:Infinity};
 }
 function cancelCountdown(){visualSignal=null;preparation.cancel();sound.stop();wakeLock.release();}
-function updateDiagnostics(s){diagnostics.update({...s,mode,preparationStatus:preparation.status,soundEnabled:sound.enabled,soundAvailable:sound.context?.state==='running'});}
+function updateDiagnostics(s){diagnostics.update({...s,mode,preparationStatus:preparation.status,soundEnabled:sound.enabled,soundAvailable:sound.context?.state==='running',apiConnection:getConnectionDiagnostic()});}
 async function start(){
-  if(busy||roundSaving||preparation.pending||!state?.profile||!outboxReady)return;
+  if(busy||roundSaving||preparation.pending||(mode!=='practice'&&(!state?.profile||!outboxReady)))return;
   showError('');$('round-result').hidden=true;
   visualSignal=null;
-  if(mode==='practice'){busy=true;renderTraining(engine.state);try{if(await acquireCamera()){wakeLock.acquire();await engine.startPractice();}}finally{busy=false;renderTraining(engine.state);}return;}
+  if(mode==='practice'){if(!engine.state.cameraOn)localPracticeSession=!state?.profile||!outboxReady;busy=true;renderTraining(engine.state);try{if(await acquireCamera()){wakeLock.acquire();await engine.startPractice();}}finally{busy=false;renderTraining(engine.state);}return;}
   // AudioContext is created/resumed inside this user gesture, before awaiting
   // the camera permission. Only this explicit action can arm automatic start.
   const audioReady=sound.enabled?sound.unlock():Promise.resolve(false);
@@ -247,12 +263,12 @@ async function launchRound({isCurrent}){
     const response=await api('rounds/start',{method:'POST',body:pendingStart});
     round=response.round;pendingStart=null;
     if(round.status!=='active'||response.serverNow>=round.endsAt)throw new ApiError('ROUND_INTERRUPTED',409);
-    sessionStorage.setItem(`movement.active.${state.profile.id}`,round.id);
+    sessionStorage.setItem(`movement.active.${profileStorageId(state.profile.id)}`,round.id);
     const receivedAt=performance.now(),serverAtReceipt=serverTimeAtReceipt(response,receivedAt-requestStarted);
     const serverNow=serverAtReceipt+performance.now()-receivedAt;
     if(!isCurrent()||document.hidden||!engine.beginRound({...round,serverNow},permit)){
       await api(`rounds/${round.id}/abort`,{method:'POST',body:{}});
-      sessionStorage.removeItem(`movement.active.${state.profile.id}`);
+      sessionStorage.removeItem(`movement.active.${profileStorageId(state.profile.id)}`);
       diagnostics.startEvent('cancelled',performance.now()-requestStarted);
       showError('Запуск отменён. Если сервер уже запустил минуту, попытка отмечена как прерванная.');return false;
     }
@@ -265,7 +281,7 @@ async function acquireCamera(){
   showError(cameraLease.supported?'Камера используется другой вкладкой этого приложения. Выключите камеру в ней и повторите запуск.':'Откройте приложение в актуальном Chrome: нужна поддержка безопасного запуска камеры в одной вкладке.');
   return false;
 }
-function finalKey(){return `movement.finalization.${state?.profile?.id}`;}
+function finalKey(){return `movement.finalization.${profileStorageId(state?.profile?.id)}`;}
 async function saveRound(result){
   if(!result.id||!state?.profile)return;
   if(result.status==='completed')preparation.complete();else preparation.cancel();
@@ -276,7 +292,7 @@ async function saveRound(result){
   try{await finalize(result);}
   catch(error){
     if(error.code==='ROUND_INTERRUPTED'){
-      localStorage.removeItem(finalKey());sessionStorage.removeItem(`movement.active.${state.profile.id}`);
+      localStorage.removeItem(finalKey());sessionStorage.removeItem(`movement.active.${profileStorageId(state.profile.id)}`);
       $('round-result').innerHTML='<h2>Попытка прервана</h2><p>Сервер не получил завершение вовремя. Рекорд не создан; сохранённые повторения остаются в дневном задании.</p>';
       await refreshQuietly();
     }else{showError(errorMessage(error));$('round-result').innerHTML='<h2>Результат ещё не подтверждён</h2><p>Не закрывайте страницу. Повторите отправку после восстановления сети.</p><button id="retry-round" class="button secondary">Повторить сохранение</button>';$('retry-round').onclick=()=>saveRound(result);diagnostics.error('SAVE_FAILED');}
@@ -300,7 +316,7 @@ async function finalize(result){
   }
   if(response.state)await applyState(response.state);else await refreshQuietly();
   localStorage.removeItem(finalKey());
-  sessionStorage.removeItem(`movement.active.${state.profile.id}`);
+  sessionStorage.removeItem(`movement.active.${profileStorageId(state.profile.id)}`);
   const completed=response.round?.status==='completed';
   $('round-result').innerHTML=completed?`<h2>Время вышло · ${response.round.count} приседаний за минуту</h2><p>Результат сохранён. ${escape($('result-comparison').textContent)}</p><button id="see-progress" class="button secondary">Посмотреть мой прогресс</button>`:'<h2>Попытка прервана</h2><p>Она не участвует в рекордах. Подтверждённые повторения учтены в дневном задании.</p>';
   $('see-progress')?.addEventListener('click',()=>setTab('progress'));
@@ -314,7 +330,7 @@ async function retryFinalization(){
   try{await finalize(saved);}catch{showError('Есть неподтверждённая попытка. Сервер не включит её в рекорд без завершения.');}
 }
 function token(){return [...crypto.getRandomValues(new Uint8Array(32))].map(n=>n.toString(16).padStart(2,'0')).join('');}
-function inviteKey(id){return `movement.invite.${state.profile.id}.${id}`;}
+function inviteKey(id){return `movement.invite.${profileStorageId(state.profile.id)}.${id}`;}
 function readInvite(id){try{return JSON.parse(localStorage.getItem(inviteKey(id))||'null');}catch{return null;}}
 function showCreatedInvite(invitation){
   if(!invitation)return;activeInvitation=invitation;$('invite-created').hidden=false;$('invite-url').value=`${invitationOrigin(location.origin)}/#invite=${invitation.token}`;
@@ -332,7 +348,7 @@ async function cancelChallenge(id){
 }
 async function createChallenge(){
   if(!state?.profile||busy)return;busy=true;$('create-challenge').disabled=true;showError('');
-  const key=`movement.create.${state.profile.id}`;
+  const key=`movement.create.${profileStorageId(state.profile.id)}`;
   let request;try{request=JSON.parse(localStorage.getItem(key)||'null');}catch{}
   request??={requestId:crypto.randomUUID(),token:token()};
   try{
@@ -368,7 +384,17 @@ $('stop').onclick=()=>{cancelCountdown();engine.stopCamera();cameraLease.release
 $('month-prev').onclick=()=>{calendarOffset--;renderCalendar();};$('month-next').onclick=()=>{calendarOffset=Math.min(0,calendarOffset+1);renderCalendar();};
 $('create-challenge').onclick=createChallenge;$('refresh-challenges').onclick=refreshQuietly;
 $('cancel-created-challenge').onclick=()=>{if(activeInvitation)cancelChallenge(activeInvitation.id);};
-$('retry-sync').onclick=async()=>{try{const saved=await outbox?.flush({retryFailed:true});if(saved)await applyState(saved);}catch(error){showError(errorMessage(error));}};
+$('retry-sync').onclick=async()=>{if(loadError||!outbox){await load();return;}try{const saved=await outbox.flush({retryFailed:true});if(saved)await applyState(saved);}catch(error){showError(errorMessage(error));}};
+$('check-server').onclick=()=>load();
+$('server-form').onsubmit=event=>{
+  event.preventDefault();
+  try{
+    if(engine.state.cameraOn||engine.state.starting||busy||roundSaving||preparation.pending)throw new Error('Выключите камеру и дождитесь окончания текущего действия перед сменой сервера.');
+    setNativeApiUrl($('server-url').value);
+    outbox?.close();
+    location.reload();
+  }catch(error){text('server-result',error.message);}
+};
 $('copy-invite').onclick=async()=>{const success=await copyReport($('invite-url'));text('invite-copy-status',success?'Ссылка скопирована. Отправьте её другу.':'Выделите ссылку и скопируйте вручную.');};
 $('copy').onclick=async()=>{updateDiagnostics(engine.state);$('copy-fallback').value=diagnostics.reportText();const ok=await copyReport($('copy-fallback'));text('copy-status',ok?'Диагностика скопирована. Вставьте её в чат.':'Отчёт подготовлен ниже. Выделите его и скопируйте вручную.');};$('select-report').onclick=()=>selectReport($('copy-fallback'));
 window.addEventListener('online',()=>{setConnection();refreshQuietly();});window.addEventListener('offline',setConnection);
@@ -414,6 +440,7 @@ if(testLoginForm){
 const signOutBtn=$('sign-out-btn');
 if(signOutBtn){
   signOutBtn.onclick=()=>{
+    cancelCountdown();engine.stopCamera();
     setTestUser('');
     state=null;
     if(outbox){outbox.close();outbox=null;outboxReady=false;}
@@ -421,9 +448,14 @@ if(signOutBtn){
     $('auth-panel').hidden=false;
     text('connection','Войдите, чтобы открыть свой профиль и результаты.');
     text('profile-toggle','Мой профиль');
+    renderTraining(engine.state);
   };
 }
-if(isNativeApp())document.querySelector('.apk-download-box')?.setAttribute('hidden','');
+if(isNativeApp()){
+  document.querySelector('.apk-download-box')?.setAttribute('hidden','');
+  $('server-settings').hidden=false;
+  $('server-url').value=getApiBaseUrl();
+}
 if(!isNativeApp() && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('/sw.js').catch(()=>{});

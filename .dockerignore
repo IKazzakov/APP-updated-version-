@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+work
+.data
+.wrangler
+android
+public/*.apk
+public/*.apk.sha256
+.env*

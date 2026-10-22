@@ -13,6 +13,10 @@ test('late camera permission response cannot resurrect stopped camera',async()=>
  const c=new Camera({srcObject:null,play:async()=>{}}),pending=c.start();c.stop();release({getTracks:()=>[track]});assert.equal(await pending,false);assert.equal(track.stopped,true);assert.equal(c.stream,null);
 });
 test('camera denial explains how to retry',()=>{assert.match(cameraError({name:'NotAllowedError'}),/Разрешить/);assert.match(cameraError({name:'NotReadableError'}),/занята/);});
+test('Android camera denial points to app permissions in system settings',()=>{
+ const previous=globalThis.Capacitor;globalThis.Capacitor={isNativePlatform:()=>true};
+ try{assert.match(cameraError({name:'NotAllowedError'}),/настройки Android.*Движение/);}finally{globalThis.Capacitor=previous;}
+});
 test('failed video playback releases acquired camera',async()=>{
  const track={stopped:false,stop(){this.stopped=true;},addEventListener(){}};
  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{mediaDevices:{getUserMedia:async()=>({getTracks:()=>[track],getVideoTracks:()=>[track]})}}});

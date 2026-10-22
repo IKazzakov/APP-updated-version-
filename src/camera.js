@@ -1,5 +1,5 @@
 export function cameraError(error){
-  if(error.name==='NotAllowedError'||error.name==='SecurityError')return 'Доступ к камере запрещён. Нажмите значок рядом с адресом сайта → Разрешения → Камера → Разрешить. Затем повторите запуск.';
+  if(error.name==='NotAllowedError'||error.name==='SecurityError')return globalThis.Capacitor?.isNativePlatform?.() ? 'Доступ к камере запрещён. Откройте настройки Android → Приложения → Движение → Разрешения → Камера → Разрешить. Затем повторите запуск.' : 'Доступ к камере запрещён. Нажмите значок рядом с адресом сайта → Разрешения → Камера → Разрешить. Затем повторите запуск.';
   if(error.name==='NotFoundError')return 'Камера не найдена. Подключите камеру и повторите попытку.';
   if(error.name==='NotReadableError')return 'Камера занята другим приложением. Закройте его и повторите запуск.';
   if(error.name==='OverconstrainedError')return 'Эта камера не поддерживает нужный режим. Попробуйте другую камеру.';

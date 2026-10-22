@@ -9,3 +9,4 @@ public/assets/motion.worker.js
 .sites-runtime/
 .vinext/
 test-results/
+.data/
