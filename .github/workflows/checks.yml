@@ -1,0 +1,42 @@
+name: Movement — reusable checks
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - run: npm run backend:validate
+      - name: Install browser test driver
+        run: npm install --prefix "$RUNNER_TEMP/browser-tools" --no-save playwright-core@1.58.2
+      - name: Check all browser scenarios in isolated cookie and device fixtures
+        env:
+          NODE_PATH: ${{ runner.temp }}/browser-tools/node_modules
+          CHROMIUM_PATH: /usr/bin/google-chrome
+          TESTSERVERPORT: '4185'
+        run: |
+          set -o pipefail
+          npm run test:browser:all 2>&1 | tee work/browser-ci.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-checks
+          path: |
+            work/diagnostics-*.png
+            work/browser-ci.log

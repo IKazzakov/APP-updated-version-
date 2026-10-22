@@ -1,4 +1,4 @@
-# Досрочное завершение вызова · тестовая 2.5.3
+# Досрочное завершение вызова · 2.5.3
 
 При досрочном завершении попытки подтверждённые повторения входят в счёт
 вызова. Из трёх попыток выбирается лучшая, их значения не суммируются.
@@ -41,7 +41,7 @@
   настоящий API с изолированной SQLite.
 - Полный локальный набор: 176 unit/integration-тестов; восемь целевых
   браузерных сценариев; typecheck, format:check, lint, build, backend:validate.
-- [CI 39844211777](https://github.com/rojoscarlos-cpu/Test/actions/runs/39844211777):
+- Исторический CI 39844211777 до переноса:
   176 unit/integration-тестов, 47 браузерных сценариев, Android-сборка и staging
   прошли. Публичное скачивание проверено по полному SHA-256 файла; рабочий
   deploy пропущен.
@@ -49,7 +49,7 @@
 ## APK с исправлением
 
 [Скачать 2.5.3](https://movement-test-api-staging.rojoscarlos93.workers.dev/app-debug.apk?sha256=d7e57351e5e3046c0e8a1c6a6035df6c6929616c60c842e3da8d7de660b10186).
-[Закреплённый файл в GitHub](https://github.com/rojoscarlos-cpu/Test/raw/8c65e6654cd982b805dc7781860117e693bd3d17/public/app-debug.apk).
+[Закреплённый файл в GitHub](https://github.com/rojoscarlos-cpu/APP-updated-version-/raw/8c65e6654cd982b805dc7781860117e693bd3d17/public/app-debug.apk).
 
 - Пакет: `com.movement.squat.staging.ui`, versionCode `20503`.
 - Размер: 20435443 байт.
@@ -67,5 +67,4 @@
 лучшие счёты. Проверить повторное открытие приложения и следующую попытку.
 Дневной прогресс должен увеличиться, а рекорд за минуту — сохраниться.
 
-Работа ведётся только в `codex/server-optimization` и тестовом Worker/D1
-`movement-test-api-staging`. Слияние в `main` и рабочая публикация не выполняются.
+Исправление включено в основную `main` 2.5.3 репозитория `APP-updated-version-`. Текущий совместимый APK использует `movement-test-api-staging`. Дальнейшие изменения делаются в отдельных ветках; слияние и рабочая публикация — по прямой команде владельца. [Актуальный CI](DEVELOPMENT.md).
