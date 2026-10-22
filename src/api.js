@@ -73,6 +73,9 @@ const MESSAGES = Object.freeze({
 
 let connectionDiagnostic = { status: null, code: 'NOT_CHECKED' };
 export const getConnectionDiagnostic = () => ({ ...connectionDiagnostic });
+export function markInvalidResponse() {
+  connectionDiagnostic = { status: 200, code: 'API_RESPONSE_INVALID' };
+}
 
 export class ApiError extends Error {
   constructor(code = 'SERVER_ERROR', status = 0) {

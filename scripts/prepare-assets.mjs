@@ -7,4 +7,6 @@ const manifest=JSON.parse(await readFile('public/assets/models/manifest.json','u
 for(const m of manifest){const data=await readFile(`public/assets/models/${m.file}`);if(createHash('sha256').update(data).digest('hex')!==m.sha256)throw new Error(`Повреждён файл ${m.file}`);if((await stat(`public/assets/models/${m.file}`)).size<100000)throw new Error('Invalid model');}
 console.log('Local model hashes and version-matched WASM verified');
 
-await build({entryPoints:['src/vision.worker.js'],bundle:true,format:'iife',platform:'browser',target:'chrome110',outfile:'public/assets/vision.worker.js',minify:true});
+// The unchanged JS vision worker has its own build settings. The application's
+// strict TypeScript configuration must not change the tested MediaPipe bundle.
+await build({entryPoints:['src/vision.worker.js'],bundle:true,format:'iife',platform:'browser',target:'chrome110',tsconfigRaw:{compilerOptions:{alwaysStrict:false}},outfile:'public/assets/vision.worker.js',minify:true});

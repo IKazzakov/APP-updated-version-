@@ -1,4 +1,4 @@
-import { api as transport, ApiError, getTestUser } from '../api.js';
+import { api as defaultTransport, ApiError, getTestUser } from '../api.js';
 import { Outbox, type SyncStatus } from '../outbox.js';
 import { HistoryLoader } from '../history.js';
 import { profileStorageId } from '../platform.js';
@@ -13,6 +13,7 @@ import type {
   HistoryKind,
   HistoryItems,
   ApiRequest,
+  Transport,
 } from '../shared/contracts/api.ts';
 
 export interface HistoryOptions {
@@ -23,7 +24,7 @@ export interface HistoryOptions {
 }
 export class SessionService {
   readonly store = new AppStore();
-  readonly client = createApiClient(transport);
+  readonly client: ReturnType<typeof createApiClient>;
   private generation = 0;
   readonly api: ApiRequest = async (path, options) => {
     const generation = this.generation;
@@ -42,7 +43,10 @@ export class SessionService {
   private quietBusy = false;
   private queueOpening: Promise<void> | null = null;
   private history: HistoryLoader;
-  constructor(private readonly onError: (error: unknown) => void) {
+  private readonly onError: (error: unknown) => void;
+  constructor(onError: (error: unknown) => void, transport: Transport = defaultTransport) {
+    this.client = createApiClient(transport);
+    this.onError = onError;
     this.history = new HistoryLoader({
       api: this.api,
       onError,
@@ -162,6 +166,8 @@ export class SessionService {
   }
   reset() {
     this.generation++;
+    this.loadError = null;
+    this.persistenceError = false;
     this.outboxOwner = null;
     this.outbox?.close();
     this.outbox = null;

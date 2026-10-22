@@ -12,8 +12,8 @@ export class Outbox {
     owner: string,
     options: { api: ApiRequest; flushDelayMs?: number; onStatus: (status: SyncStatus) => void },
   );
-  init(): Promise<void>;
-  add(event: Repetition): Promise<void>;
+  init(): Promise<Outbox>;
+  add(event: Repetition): Promise<string>;
   flush(options?: { retryFailed?: boolean }): Promise<Snapshot | null>;
   count(): Promise<number>;
   close(): void;
