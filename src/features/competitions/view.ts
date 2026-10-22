@@ -43,7 +43,7 @@ export function competitionHTML(
     : '';
   return /* HTML */ `<article class="card competition-card">
     <div class="card-top">
-      <strong>60 секунд · до трёх попыток</strong><span class="pill">${statuses[c.status]}</span>
+      <strong>До 60 секунд · до трёх попыток</strong><span class="pill">${statuses[c.status]}</span>
     </div>
     <div class="competition-players">
       ${(['creator', 'opponent'] as const)

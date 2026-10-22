@@ -151,6 +151,62 @@ test('three consumed attempts, including interrupted attempts; duplicate start c
   assert.equal((await f.api('alice','/rounds/start',{requestId:id(),kind:'competition',competitionId})).body.error.code,'ATTEMPTS_EXHAUSTED');
   const state=(await f.api('alice','/state')).body,me=state.competitions[0].participants.find(value=>value.isYou);assert.equal(me.attemptsUsed,3);assert.equal(me.best,4);assert.equal(state.rounds.length,1);
 });
+for(const compact of [false,true])test(`${compact?'v2':'legacy'}: early competition stops retain each participants best score without creating minute records`,async t=>{
+  const f=fixture(t),invitation=await f.competition(),competitionId=invitation.competition.id;
+  await f.api('bob','/invitations/accept',{token:invitation.token});
+  const base=compact?'/v2':'',call=(user,path,body)=>f.api(user,base+path,body);
+  const competition=async user=>compact?(await call(user,'/competitions')).body.items[0]:(await call(user,'/state')).body.competitions[0];
+  const stop=async(user,count)=>{
+    const started=await call(user,'/rounds/start',{requestId:id(),kind:'competition',competitionId});
+    assert.equal(started.status,200);const round=started.body.round;f.now=round.startsAt+10_000;
+    if(count)assert.equal((await call(user,'/repetitions',{events:f.events(count,round)})).status,200);
+    const ended=await call(user,`/rounds/${round.id}/abort`,{});assert.equal(ended.status,200);
+    assert.equal(ended.body.round.status,'aborted');assert.equal(ended.body.round.count,count);
+    assert.ok(ended.body.round.finishedAt<round.endsAt);
+    const repeat=await call(user,`/rounds/${round.id}/abort`,{});assert.equal(repeat.body.round.count,count);
+    return round;
+  };
+  const first=await stop('alice',10);await stop('bob',12);
+  let duel=await competition('alice');
+  assert.deepEqual(duel.participants.map(p=>p.best),[10,12]);
+  assert.ok(duel.participants.every(p=>p.attemptsUsed===1&&p.attemptsLeft===2&&!p.activeAttempt));
+  assert.equal(duel.status,'active');
+  assert.equal((await f.api('alice','/state')).body.today.count,10);
+  assert.equal((await f.api('bob','/state')).body.today.count,12);
+  assert.equal((await f.api('alice','/state')).body.points,10);
+  assert.equal((await call('bob',`/rounds/${first.id}/abort`,{})).status,404);
+  for(const user of ['alice','bob']){
+    const dashboard=(await f.api(user,'/v2/dashboard')).body;
+    assert.equal(dashboard.rounds.length,0);assert.equal(dashboard.stats.record,null);
+    assert.equal((await f.api(user,'/v2/history/rounds')).body.items.length,0);
+  }
+  assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) n FROM weekly_best').get().n,0);
+  assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) n FROM daily_rewards').get().n,2);
+  await stop('alice',4);await stop('alice',0);await stop('bob',3);await stop('bob',0);
+  duel=await competition('alice');
+  assert.deepEqual(duel.participants.map(p=>p.best),[10,12]);
+  assert.ok(duel.participants.every(p=>p.attemptsUsed===3&&p.attemptsLeft===0));
+  assert.equal(duel.status,'finished');assert.deepEqual(duel.result,{type:'winner',winner:'opponent'});
+  assert.deepEqual((await competition('bob')).participants.map(p=>p.best),[10,12]);
+  assert.equal((await call('alice','/rounds/start',{requestId:id(),kind:'competition',competitionId})).body.error.code,'ATTEMPTS_EXHAUSTED');
+  assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) n FROM weekly_best').get().n,0);
+});
+test('early competition results respect rules, ignore empty stops, and can tie a completed minute',async t=>{
+  const f=fixture(t),invitation=await f.competition(),competitionId=invitation.competition.id;
+  await f.api('bob','/invitations/accept',{token:invitation.token});
+  let round=await f.start('alice',competitionId);f.now+=5000;
+  await f.api('alice','/repetitions',{events:f.events(5,round)});await f.api('alice',`/rounds/${round.id}/abort`,{});
+  f.db.sqlite.prepare('UPDATE rounds SET rules_version=? WHERE id=?').run('squat-old',round.id);
+  assert.equal((await f.api('alice','/state')).body.competitions[0].participants[0].best,null);
+  f.db.sqlite.prepare('UPDATE rounds SET rules_version=? WHERE id=?').run('squat-v1',round.id);
+  round=await f.start('bob',competitionId);await f.complete('bob',round,5);
+  round=await f.start('charlie');await f.api('charlie',`/rounds/${round.id}/abort`,{});
+  f.now+=COMPETITION_MS;
+  const state=(await f.api('alice','/state')).body;
+  assert.deepEqual(state.competitions[0].result,{type:'tie',winner:null});
+  assert.equal(state.rounds.length,0);
+  assert.equal((await f.api('bob','/state')).body.rounds.length,1);
+});
 test('less than sixty seconds remaining prevents a new attempt and expiry without results is not held',async t=>{
   const f=fixture(t),invitation=await f.competition();const accepted=await f.api('bob','/invitations/accept',{token:invitation.token});
   f.now=accepted.body.competition.expiresAt-ROUND_MS+1;
@@ -166,7 +222,7 @@ test('best completed scores decide winner and count once in personal history; in
   round=await f.start('alice',other.id);await f.complete('alice',round,7);round=await f.start('bob',other.id);await f.complete('bob',round,4);
   f.now+=COMPETITION_MS;state=(await f.api('alice','/state')).body;const final=state.competitions.find(value=>value.id===other.id);assert.equal(final.result.type,'winner');assert.equal(final.result.winner,'creator');assert.equal(state.rounds.length,2);
 });
-test('tie after all six attempts exhausted, only completed attempts enter comparison',async t=>{
+test('tie after all six attempts exhausted; empty interrupted attempts do not change the best score',async t=>{
   const f=fixture(t),invitation=await f.competition();await f.api('bob','/invitations/accept',{token:invitation.token});
   for (const user of ['alice','bob']) {
     let round=await f.start(user,invitation.competition.id);await f.complete(user,round,6);

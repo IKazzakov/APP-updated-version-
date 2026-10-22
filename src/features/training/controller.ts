@@ -96,7 +96,7 @@ export function createTraining(
         ? 'Приседания без таймера'
         : next === 'personal'
           ? 'Мой результат за 60 секунд'
-          : 'Соревновательная попытка · 60 секунд',
+          : 'Соревновательная попытка · до 60 секунд',
     );
     text(
       'mode-description',
@@ -104,7 +104,7 @@ export function createTraining(
         ? 'Любой удобный темп, подходы и паузы. Повторения сохраняются в дневном задании.'
         : next === 'personal'
           ? 'Подготовиться → положение 2 секунды → 5–4–3–2–1 → ровно 60 секунд. Пауза недоступна. Уход в фон или выключение камеры прерывает попытку.'
-          : 'Подготовиться → положение 2 секунды → 5–4–3–2–1 → 60 секунд. Попытка расходуется при запуске таймера. Досрочное завершение тоже расходует попытку.',
+          : 'Подготовиться → положение 2 секунды → 5–4–3–2–1 → до 60 секунд. При досрочной остановке повторения идут в счёт вызова. Попытка расходуется при запуске таймера. Для личного рекорда нужна полная минута.',
     );
     text(
       'session-tag',
@@ -290,7 +290,7 @@ export function createTraining(
   }
 
   async function saveRound(result: RoundResult) {
-    activity.record('round.end', { stage: result.status });
+    activity.record('round.end', { stage: result.status, mode });
     if (!result.id || !session.state?.profile) return;
     if (result.status === 'completed') preparation.complete();
     else preparation.cancel();
@@ -317,7 +317,7 @@ export function createTraining(
           `movement.active.${profileStorageId(session.requireState().profile.id)}`,
         );
         $('round-result').innerHTML =
-          '<h2>Попытка прервана</h2><p>Сервер не получил завершение вовремя. Рекорд не создан; сохранённые повторения остаются в дневном задании.</p>';
+          '<h2>Попытка прервана</h2><p>Сервер не получил завершение вовремя. Рекорд за минуту не создан. Сохранённые повторения остаются в дневном задании; в вызове учитывается подтверждённый счёт попытки.</p>';
         await refreshQuietly();
       } else {
         showError(errorMessage(error));
@@ -336,7 +336,9 @@ export function createTraining(
     const completed = round?.status === 'completed';
     $('round-result').innerHTML = completed
       ? `<h2>Время вышло · ${round.count} приседаний за минуту</h2><p>Результат сохранён. ${escape(resultComparison(session.state))}</p><button id="see-progress" class="button secondary">Посмотреть мой прогресс</button>`
-      : '<h2>Попытка прервана</h2><p>Она не участвует в рекордах. Подтверждённые повторения учтены в дневном задании.</p>';
+      : round?.kind === 'competition'
+        ? `<h2>Вызов · засчитано: ${round.count}</h2><p>Попытка завершена досрочно. ${round.count > 0 ? 'Повторения засчитаны в вызове и дневном задании. В зачёт вызова идёт лучшая попытка.' : 'Повторений нет, счёт вызова не увеличен.'} Попытка израсходована. Для личного рекорда и рейтинга за 60 секунд нужна полная минута.</p>`
+        : '<h2>Попытка прервана</h2><p>Она не участвует в рекордах. Подтверждённые повторения учтены в дневном задании.</p>';
     root
       .querySelector<HTMLButtonElement>('#see-progress')
       ?.addEventListener('click', () => setTab('progress'));
@@ -445,7 +447,7 @@ export function createTraining(
     recoverReload: async () => {
       if (await persistence.recoverReload())
         showError(
-          'Предыдущая незавершённая попытка прервана. Её повторения останутся в дневном задании.',
+          'Предыдущая незавершённая попытка прервана. Сохранённые повторения остаются в дневном задании; в вызове учитывается подтверждённый счёт попытки.',
         );
     },
     destroy: () => {

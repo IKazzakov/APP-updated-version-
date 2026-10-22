@@ -55,9 +55,13 @@ export async function competitionView(db, value, userId, now, cached=null) {
   for(const attempt of attempts)if(attempt.status==='active'&&attempt.ends_at+DELIVERY_GRACE_MS<now)attempt.status='aborted';
   const participants = members.map((id, index) => {
     const mine = attempts.filter(attempt => attempt.user_id === id);
-    const completed = mine.filter(attempt => attempt.status === 'completed' && attempt.rules_version === value.rules_version);
+    // A duel keeps repetitions delivered before an early stop. The round stays
+    // aborted, so personal history and the 60-second rankings still exclude it.
+    // An empty interrupted attempt consumes a try without fabricating a score.
+    const scored = mine.filter(attempt => attempt.rules_version === value.rules_version &&
+      (attempt.status === 'completed' || attempt.status === 'aborted' && attempt.count > 0));
     return {role:index ? 'opponent' : 'creator', name:names.find(profile => profile.user_id === id)?.display_name ?? 'Участник', isYou:id === userId,
-      best:completed.length ? Math.max(...completed.map(attempt => attempt.count)) : null, attemptsUsed:mine.length, attemptsLeft:Math.max(0, ATTEMPT_LIMIT-mine.length), activeAttempt:mine.some(attempt => attempt.status === 'active')};
+      best:scored.length ? Math.max(...scored.map(attempt => attempt.count)) : null, attemptsUsed:mine.length, attemptsLeft:Math.max(0, ATTEMPT_LIMIT-mine.length), activeAttempt:mine.some(attempt => attempt.status === 'active')};
   });
   const active = participants.some(participant => participant.activeAttempt);
   const exhausted = participants.length === 2 && participants.every(participant => participant.attemptsLeft === 0) && !active;
