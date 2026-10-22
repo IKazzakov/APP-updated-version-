@@ -1,0 +1,102 @@
+<section id="tab-today" class="feature-today tab-content">
+  <div class="intro">
+    <p class="eyebrow">МАЛЕНЬКИЕ ДВИЖЕНИЯ. КАЖДЫЙ ДЕНЬ.</p>
+    <h1>Начните с десяти<span>.</span></h1>
+    <p class="subtitle" id="today-date">Ваше дневное задание</p>
+  </div>
+  <div class="today-grid">
+    <article class="card goal-card">
+      <div class="card-top">
+        <span class="eyebrow">ДНЕВНОЕ ЗАДАНИЕ</span>
+        <span class="pill">Без таймера</span>
+      </div>
+      <div class="goal-number">
+        <strong id="daily-number">—</strong>
+        <span>из 10</span>
+      </div>
+      <progress id="daily-bar" max="10" value="0" aria-label="Дневное задание"></progress>
+      <h2 id="daily-label">Сегодня — из 10</h2>
+      <p id="daily-description">
+        Можно за несколько подходов. Все засчитанные приседания идут в дневное задание.
+      </p>
+      <button id="today-train" class="button primary">
+        Начать тренировку
+        <span aria-hidden="true">
+          <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M6 18 18 6M6 6h12v12"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+      </button>
+    </article>
+    <article class="card regularity-card">
+      <span class="eyebrow">ВСЕ БАЛЛЫ</span>
+      <div class="metric">
+        <strong id="regularity-points">—</strong>
+        <span>баллов</span>
+      </div>
+      <p>Дневные задания и недельные бонусы. Пропуски не отнимают заработанные баллы.</p>
+      <div class="seven-days">
+        <strong id="last-seven">—</strong>
+        <span>выполненных дней за последние 7</span>
+      </div>
+    </article>
+  </div>
+  <div class="weekly-grid">
+    <article id="your-week" class="card week-card">
+      <div class="card-top">
+        <h2>Твоя неделя</h2>
+        <span id="your-week-period" class="pill"> </span>
+      </div>
+      <p id="your-week-zone" class="muted"></p>
+      <div
+        id="week-checks"
+        class="week-checks"
+        aria-label="Дневные задания с понедельника по воскресенье"
+      ></div>
+      <strong id="week-days"> </strong>
+      <p id="week-bonus-status" role="status"></p>
+      <div id="week-breakdown" class="points-breakdown"></div>
+      <p id="week-sync-note" class="muted"></p>
+      <p id="bonus-notice" class="bonus-notice" role="status" hidden></p>
+    </article>
+    <article class="card places-card">
+      <h2>Мои места за неделю</h2>
+      <p id="places-period" class="muted"></p>
+      <div id="my-week-places"></div>
+    </article>
+  </div>
+  <article id="weekly-recap" class="card weekly-recap" hidden aria-live="polite"></article>
+  <article class="card calendar-card">
+    <div class="section-heading">
+      <div>
+        <span class="eyebrow">ВАША ПРИВЫЧКА</span>
+        <h2>Календарь активности</h2>
+      </div>
+      <div class="calendar-navigation">
+        <button id="month-prev" class="icon-button" aria-label="Предыдущий месяц">‹</button>
+        <span id="calendar-month"> </span>
+        <button id="month-next" class="icon-button" aria-label="Следующий месяц">›</button>
+      </div>
+    </div>
+    <div class="calendar-week" aria-hidden="true">
+      <span>Пн</span>
+      <span>Вт</span>
+      <span>Ср</span>
+      <span>Чт</span>
+      <span>Пт</span>
+      <span>Сб</span>
+      <span>Вс</span>
+    </div>
+    <div id="calendar" class="calendar"></div>
+    <p class="muted calendar-legend"><i> </i>Задание выполнено · день по часовому поясу профиля</p>
+  </article>
+  <p class="separation-note">
+    Результат и баллы — два независимых рейтинга. В дуэли сравниваем только приседания за 60 секунд.
+  </p>
+</section>

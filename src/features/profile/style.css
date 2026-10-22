@@ -1,0 +1,55 @@
+:where([data-feature='profile']) .profile-panel {
+  margin-top: 16px;
+}
+:where([data-feature='profile']) .profile-panel form {
+  max-width: 450px;
+}
+:where([data-feature='profile']) .profile-panel label {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  color: #6b7d5c;
+}
+:where([data-feature='profile']) .text-link {
+  display: inline-block;
+  font-size: 12px;
+  color: #6c8258;
+  margin-top: 17px;
+}
+:where([data-feature='profile']) .profile-panel .button {
+  margin: 8px 0;
+}
+:where([data-feature='profile']) .profile-panel h2 {
+  margin-bottom: 8px;
+}
+@media (max-width: 640px) {
+  :where([data-feature='profile']) #auth-panel h1 {
+    font-size: 25px;
+  }
+}
+
+:where([data-feature='profile']) .ranking-consent {
+  border-top: 1px solid var(--line);
+  margin: 18px 0;
+  padding-top: 8px;
+}
+:where([data-feature='profile']) .ranking-consent .switch-label {
+  font-size: 14px;
+  color: #34482d;
+  line-height: 1.5;
+}
+:where([data-feature='profile']) .ranking-consent input[type='checkbox'] {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  accent-color: #799d4b;
+}
+@media (max-width: 640px) {
+  :where([data-feature='profile']) .ranking-consent .switch-label {
+    align-items: flex-start;
+    font-size: 13px;
+  }
+  :where([data-feature='profile']) .ranking-consent input {
+    margin-top: 2px !important;
+  }
+}

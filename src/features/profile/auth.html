@@ -1,0 +1,48 @@
+<div id="auth-panel" class="card" hidden>
+  <h1>Ваш прогресс начинается здесь</h1>
+  <p>Начните в гостевом режиме или выберите имя для нового профиля:</p>
+  <button
+    id="quick-guest-btn"
+    type="button"
+    class="button secondary"
+    style="
+      width: 100%;
+      margin-bottom: 14px;
+      background: #eef6e4;
+      border-color: #c8dfb2;
+      color: #355325;
+    "
+  >
+    ⚡ Быстрый старт (Гость)
+  </button>
+  <form id="test-login-form" class="auth-form">
+    <label
+      for="test-username-input"
+      class="muted"
+      style="display: block; margin-bottom: 8px; font-size: 14px"
+      >Или укажите своё имя</label
+    >
+    <div style="display: flex; gap: 8px; margin-bottom: 12px">
+      <input
+        id="test-username-input"
+        type="text"
+        placeholder="Например, Алекс"
+        required
+        maxlength="40"
+        autocomplete="name"
+        style="
+          flex: 1;
+          padding: 10px 14px;
+          border: 1px solid #d1d5db;
+          border-radius: 8px;
+          font-size: 16px;
+        "
+      />
+      <button id="test-login-btn" type="submit" class="button primary">Начать</button>
+    </div>
+  </form>
+  <p class="muted" style="font-size: 13px; margin: 0">
+    На новом сервере профиль привязан к этому устройству. Имя видно друзьям и не служит паролем.
+    После выхода создаётся новый гостевой профиль.
+  </p>
+</div>

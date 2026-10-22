@@ -1,0 +1,119 @@
+:where([data-feature='progress']) .progress-cards {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 20px;
+}
+:where([data-feature='progress']) .record-card {
+  background: #eef5e3;
+}
+:where([data-feature='progress']) .chart-card,
+:where([data-feature='progress']) .history-card {
+  margin-top: 20px;
+}
+:where([data-feature='progress']) .chart {
+  min-height: 170px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+:where([data-feature='progress']) .chart svg {
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+  overflow: visible;
+}
+:where([data-feature='progress']) .chart-empty {
+  font-size: 12px;
+  color: #8a967f;
+  padding: 30px;
+  text-align: center;
+}
+:where([data-feature='progress']) .history-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 16px;
+  border-top: 1px solid var(--line);
+  padding: 17px 0;
+  align-items: center;
+  font-size: 12px;
+}
+:where([data-feature='progress']) .history-row:first-child {
+  border-top: 0;
+}
+:where([data-feature='progress']) .history-row strong {
+  font-size: 23px;
+  font-weight: 550;
+}
+:where([data-feature='progress']) .history-row span {
+  color: #8b967e;
+}
+:where([data-feature='progress']) .history-row small {
+  display: block;
+  color: #98a18f;
+  margin-top: 5px;
+}
+@media (max-width: 640px) {
+  :where([data-feature='progress']) .progress-cards {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  :where([data-feature='progress']) .progress-cards .card {
+    padding: 19px 14px;
+  }
+  :where([data-feature='progress']) .progress-cards .metric strong {
+    font-size: 55px;
+  }
+  :where([data-feature='progress']) .progress-cards .metric span {
+    font-size: 10px;
+  }
+  :where([data-feature='progress']) .progress-cards p {
+    font-size: 11px;
+  }
+  :where([data-feature='progress']) .history-row {
+    grid-template-columns: 1fr 1fr auto;
+    gap: 10px;
+    font-size: 10px;
+  }
+  :where([data-feature='progress']) .history-row strong {
+    font-size: 21px;
+  }
+  :where([data-feature='progress']) .chart-card,
+  :where([data-feature='progress']) .history-card {
+    padding: 20px 16px;
+  }
+}
+:where([data-feature='progress']) .weekly-history {
+  margin-top: 20px;
+}
+:where([data-feature='progress']) .week-history-row {
+  border-top: 1px solid var(--line);
+  padding: 16px 0;
+}
+:where([data-feature='progress']) .week-history-row > summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #566e46;
+  min-height: 40px;
+}
+:where([data-feature='progress']) .week-history-row > summary strong {
+  margin-left: auto;
+  white-space: nowrap;
+}
+:where([data-feature='progress']) .week-history-row > div {
+  padding: 18px 0 2px;
+}
+:where([data-feature='progress']) .week-history-row h2 {
+  font-size: 17px;
+}
+@media (max-width: 640px) {
+  :where([data-feature='progress']) .weekly-history {
+    padding: 20px 16px;
+  }
+  :where([data-feature='progress']) .week-history-row > summary {
+    font-size: 12px;
+  }
+}
