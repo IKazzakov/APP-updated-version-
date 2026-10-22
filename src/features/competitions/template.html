@@ -1,0 +1,153 @@
+<section id="tab-competitions" class="feature-competitions tab-content" hidden>
+  <div class="intro">
+    <p class="eyebrow">ДВИГАЙТЕСЬ ВМЕСТЕ</p>
+    <h1>Есть с кем двигаться<span>.</span></h1>
+    <p class="subtitle">Дуэли с другом и два независимых рейтинга.</p>
+  </div>
+  <div class="competition-tabs" role="tablist" aria-label="Соревнования">
+    <button
+      id="competition-tab-duels"
+      data-competition-tab="duels"
+      role="tab"
+      aria-selected="true"
+      aria-controls="competition-duels"
+      class="active"
+    >
+      Дуэли
+    </button>
+    <button
+      id="competition-tab-result"
+      data-competition-tab="result"
+      role="tab"
+      aria-selected="false"
+      aria-controls="league-panel"
+    >
+      Результат
+    </button>
+    <button
+      id="competition-tab-points"
+      data-competition-tab="points"
+      role="tab"
+      aria-selected="false"
+      aria-controls="league-panel"
+    >
+      Баллы
+    </button>
+  </div>
+  <div id="competition-duels" role="tabpanel" aria-labelledby="competition-tab-duels">
+    <article class="card challenge-intro">
+      <div>
+        <h2>Вызовите друга</h2>
+        <p>
+          Каждый приседает у себя. После принятия приглашения у вас обоих есть 24 часа и по три
+          попытки. Баллы на победу не влияют.
+        </p>
+      </div>
+      <button id="create-challenge" class="button primary">
+        Вызвать друга
+        <svg class="arrow-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path
+            d="M6 18 18 6M6 6h12v12"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </article>
+    <article id="invite-created" class="card" hidden>
+      <h2>Приглашение готово</h2>
+      <p>
+        Скопируйте ссылку и отправьте другу самостоятельно. Ему понадобится свой вход через ChatGPT
+        и доступ к этому приватному сайту.
+      </p>
+      <input id="invite-url" readonly aria-label="Ссылка для друга" />
+      <button id="copy-invite" class="button secondary">Скопировать ссылку</button>
+      <p id="invite-copy-status" role="status"></p>
+      <button id="cancel-created-challenge" class="button secondary" hidden>Отменить вызов</button>
+      <p class="muted">
+        Владелец открывает доступ другу через «Поделиться» в Sites. Сама ссылка соревнования доступ
+        к сайту не открывает.
+      </p>
+    </article>
+    <article id="invite-accept" class="card" hidden>
+      <h2>Вас приглашают на минутный раунд</h2>
+      <p id="invite-preview"></p>
+      <button id="accept-challenge" class="button primary">Принять приглашение</button>
+    </article>
+    <div class="section-heading">
+      <h2>Ваши соревнования</h2>
+      <button id="refresh-challenges" class="icon-button">Обновить</button>
+    </div>
+    <div id="competition-list" class="competition-list">
+      <div class="empty-state">Загружаем соревнования…</div>
+    </div>
+    <button id="competitions-more" class="button secondary" hidden>
+      Загрузить ещё соревнования
+    </button>
+    <p class="muted">
+      Это дружеский формат: сервер проверяет сроки и попытки, но не доказывает физическое выполнение
+      упражнения.
+    </p>
+  </div>
+  <div id="league-panel" role="tabpanel" hidden>
+    <article class="card league-card">
+      <div class="card-top">
+        <h2 id="league-title">Лучшая минута недели</h2>
+        <button id="refresh-league" class="icon-button">Обновить</button>
+      </div>
+      <p id="league-consent" class="muted"></p>
+      <div class="league-filters">
+        <div id="points-periods" class="segmented" role="group" aria-label="Период баллов" hidden>
+          <button id="points-week" class="active" aria-pressed="true">Неделя</button>
+          <button id="points-all" aria-pressed="false">Всё время</button>
+        </div>
+        <label id="league-week-label"
+          >Неделя<select id="league-week" aria-label="Неделя рейтинга"></select>
+        </label>
+      </div>
+      <p id="league-period"></p>
+      <p id="league-deadline" class="muted"></p>
+      <p id="league-status" class="league-status" role="status"></p>
+      <div id="league-table" aria-live="polite"></div>
+      <p id="league-sync-note" class="muted"></p>
+      <button id="league-personal" class="button primary" hidden>Мой результат за 60 секунд</button>
+      <button id="league-profile" class="button secondary" hidden>Настроить участие</button>
+    </article>
+    <details class="card league-rules">
+      <summary>Как устроены рейтинги и награды</summary>
+      <p>
+        «Результат»: один лучший завершённый раунд за 60 секунд — личный или из дуэли. Нужен
+        положительный результат по версии правил выбранной недели. Незавершённые попытки не
+        участвуют.
+      </p>
+      <p>
+        Одинаковый результат — одинаковое место с пропуском следующих позиций: 1, 1, 3. За места 1 /
+        2 / 3 начисляется +20 / +10 / +5 баллов. Каждый участник разделённого места получает полную
+        награду. Спортивные награды начисляются после закрытия недели, участникам рейтинга на момент
+        закрытия.
+      </p>
+      <p>
+        «Баллы»: +10 за дневное задание, один раз в день; +20 за все семь выполненных заданий с
+        понедельника по воскресенье; плюс награда за спортивное место. За место по баллам награды
+        нет. Баллы не определяют победителя дуэли или спортивного рейтинга.
+      </p>
+      <p>
+        Дневные задания и полная неделя определяются по сохранённому часовому поясу профиля.
+        Спортивная неделя заканчивается одновременно для всех: в понедельник 00:00,
+        Africa/Johannesburg (UTC+2). Момент окончания раунда определяет его неделю.
+      </p>
+      <p>
+        Баллы прошлой недели могут обновиться после синхронизации ранее выполненных заданий.
+        Закрытый спортивный итог сохраняется. Недельные бонусы действуют с недели первого запуска
+        функции; старые дневные баллы сохранены.
+      </p>
+      <p>
+        Пользователи с доступом к APP участвуют по умолчанию. В профиле можно выбрать «Не
+        участвовать в общих рейтингах». Отказ скрывает строки и сохраняет баллы, не меняя уже
+        выданные спортивные награды.
+      </p>
+    </details>
+  </div>
+</section>
