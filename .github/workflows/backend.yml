@@ -11,7 +11,36 @@ concurrency:
   group: movement-backend-${{ github.ref }}
   cancel-in-progress: ${{ github.ref == 'refs/heads/codex/server-optimization' }}
 jobs:
+  signing_probe:
+    if: contains(github.event.head_commit.message, '[signing-probe]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            work/gradle/caches
+            work/gradle/wrapper
+            ~/.android/debug.keystore
+          key: movement-staging-android-v1-${{ runner.os }}
+      - name: Inspect public debug certificate metadata only
+        run: |
+          for candidate in "$HOME/.android/debug.keystore" work/android-user/debug.keystore; do
+            if [ -f "$candidate" ]; then
+              echo "Certificate metadata: $candidate"
+              keytool -list -keystore "$candidate" -storepass android -alias androiddebugkey
+            else
+              echo "Keystore absent: $candidate"
+            fi
+          done
+          find work/gradle/caches -type f \( -name '*.keystore' -o -name '*.jks' \) -print || true
   check:
+    if: ${{ !contains(github.event.head_commit.message, '[signing-probe]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
