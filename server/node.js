@@ -5,11 +5,10 @@ import {readFile,stat} from 'node:fs/promises';
 import {resolve,relative,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {openDatabase} from './sqlite.js';
-import worker from './worker.js';
+import worker from './cloudflare.js';
 import {VERSION} from '../src/config.js';
 
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.wasm':'application/wasm','.task':'application/octet-stream','.woff2':'font/woff2','.apk':'application/vnd.android.package-archive'};
-const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'}});
 
 export async function createNodeServer({databasePath=process.env.MOVEMENT_DB_PATH||'.data/movement.sqlite',assetsDirectory=resolve('dist/client'),publicOrigin=process.env.PUBLIC_ORIGIN,dev=false}={}){
   const db=openDatabase(databasePath),root=resolve(assetsDirectory);
@@ -34,8 +33,7 @@ export async function createNodeServer({databasePath=process.env.MOVEMENT_DB_PAT
         vite.middlewares(incoming,outgoing);return;
       }
       const headers=new Headers(incoming.headers);
-      // These identities are trusted only behind Sites dispatch. Direct Node
-      // clients use the existing name-based test login, never spoof Sites IDs.
+      // Node mirrors the deployed API's individual device authentication.
       for(const key of [...headers.keys()])if(key.startsWith('oai-authenticated-'))headers.delete(key);
       const protocol=incoming.headers['x-forwarded-proto']?.split(',')[0].trim()==='https'?'https':'http';
       const origin=publicOrigin?new URL(publicOrigin).origin:`${protocol}://${incoming.headers.host}`;
@@ -43,8 +41,7 @@ export async function createNodeServer({databasePath=process.env.MOVEMENT_DB_PAT
       const chunks=[];let size=0;
       for await(const chunk of incoming){size+=chunk.length;if(size>65536){outgoing.writeHead(413,{'content-type':'application/json'});outgoing.end(JSON.stringify({error:{code:'TOO_LARGE'}}));return;}chunks.push(chunk);}
       const request=new Request(new URL(incoming.url,origin),{method,headers,...(['GET','HEAD'].includes(method)?{}:{body:Buffer.concat(chunks)})});
-      const path=new URL(request.url).pathname;
-      const response=path==='/healthz'||path==='/api/health'?json({ok:true,version:VERSION,storage:'sqlite',login:'test-name'}):path==='/api'?json({error:{code:'NOT_FOUND'}},404):await worker.fetch(request,{DB:db,ASSETS:{fetch:assetsFetch}});
+      const response=await worker.fetch(request,{DB:db,ASSETS:{fetch:assetsFetch},STORAGE_KIND:'sqlite'});
       outgoing.writeHead(response.status,Object.fromEntries(response.headers));
       outgoing.end(method==='HEAD'?undefined:Buffer.from(await response.arrayBuffer()));
     }catch(error){

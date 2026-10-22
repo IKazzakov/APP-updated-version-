@@ -1,7 +1,7 @@
 import {Capacitor, CapacitorHttp} from '@capacitor/core';
 
 const legacyNativeApi = 'https://ais-pre-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api';
-const defaultNativeApi = 'https://ais-dev-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api';
+const defaultNativeApi = 'https://movement-test-api.rojoscarlos93.workers.dev/api';
 const nativeApi = (import.meta.env?.VITE_API_BASE_URL || defaultNativeApi).replace(/\/+$/, '');
 const SERVER_KEY = 'movement.nativeApi';
 
@@ -26,6 +26,16 @@ function currentNativeApi() {
 }
 
 export const isNativeApp = () => Capacitor.isNativePlatform();
+export function migrateLegacyApi(){
+  if(!isNativeApp())return;
+  try{
+    if(localStorage.getItem('movement.backend-migration.2.5.2'))return;
+    const saved=localStorage.getItem(SERVER_KEY);
+    const old=[legacyNativeApi,'https://ais-dev-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api'];
+    if(saved&&old.includes(normalizeApiUrl(saved)))localStorage.removeItem(SERVER_KEY);
+    localStorage.setItem('movement.backend-migration.2.5.2','done');
+  }catch{/* A custom address is preserved if storage is unavailable. */}
+}
 export const getApiBaseUrl = (native = isNativeApp()) => native ? currentNativeApi() : '/api';
 export const invitationOrigin = (webOrigin, native = isNativeApp()) => native ? new URL(currentNativeApi()).origin : webOrigin;
 // Existing queues remain on their original server. Switching a test server

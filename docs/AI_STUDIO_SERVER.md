@@ -1,4 +1,10 @@
-# API для Google AI Studio / Cloud Run · 2.5.1
+# API для Google AI Studio / Cloud Run
+
+**Для 2.5.2 основной сервер уже вынесен в Cloudflare Workers + D1:**
+https://movement-test-api.rojoscarlos93.workers.dev.
+Инструкция публикации: [CLOUDFLARE_SETUP.md](CLOUDFLARE_SETUP.md).
+Node-предпросмотр использует такую же индивидуальную авторизацию с локальной
+SQLite. Описание ниже относится к прежнему размещению 2.5.1 на AI Studio.
 
 Если `/api/state` открывает интерфейс, APK попадает в обработчик HTML вместо
 API. Исходный Worker с привязкой D1 работает на Sites; сам по себе он не

@@ -6,6 +6,7 @@ import {dirname,resolve,relative,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {handleApi} from '../server/api.js';
 import worker from '../server/worker.js';
+import cloudWorker from '../server/cloudflare.js';
 import {createTestDatabase} from './server-db.js';
 import {build} from 'esbuild';
 
@@ -99,7 +100,7 @@ async function dispatch(request) {
   if(['alice','bob','charlie'].includes(actor))headers.set('oai-authenticated-user-id',actor);
   const trusted=new Request(request,{headers});
   const env={DB:db,ASSETS:{fetch:assetFetch}};
-  if(url.pathname.startsWith('/api/'))return handleApi(trusted,env,{now:()=>Date.now()+clockOffset});
+  if(url.pathname.startsWith('/api/'))return process.env.TEST_AUTH_MODE==='device'?cloudWorker.fetch(trusted,env):handleApi(trusted,env,{now:()=>Date.now()+clockOffset});
   return worker.fetch(trusted,env);
 }
 

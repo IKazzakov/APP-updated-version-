@@ -1,4 +1,5 @@
 import {getApiBaseUrl, isNativeApp, nativeApiRequest} from './platform.js';
+import {deviceSecret,usesDeviceAuth,requireDeviceAuth,newDeviceSecret,forgetDeviceSecret} from './device-auth.js';
 export {getApiBaseUrl} from './platform.js';
 
 const MESSAGES = Object.freeze({
@@ -55,6 +56,9 @@ const MESSAGES = Object.freeze({
   SERVER_ERROR: 'Не удалось сохранить данные на сервере. Повторная отправка безопасна.',
   API_NOT_FOUND: 'По этому адресу нет API приложения. Проверьте опубликованный адрес сервера.',
   API_RESPONSE_INVALID: 'Сервер вернул страницу вместо данных API. Проверьте адрес и доступ к серверу.',
+  DEVICE_AUTH_REQUIRED: 'Начните в гостевом режиме, чтобы создать личный профиль на этом устройстве.',
+  SESSION_REVOKED: 'Сессия завершена. Нажмите гостевой старт ещё раз, чтобы создать новый профиль.',
+  RATE_LIMITED: 'Слишком много новых профилей. Подождите минуту и повторите.',
 });
 
 let connectionDiagnostic = {status: null, code: 'NOT_CHECKED'};
@@ -90,20 +94,42 @@ export function getTestUserId(name) {
   return 'u_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
+export async function signInGuest(name){
+  const base=getApiBaseUrl();
+  if(usesDeviceAuth(base)){
+    let secret;
+    try{secret=deviceSecret(base)||newDeviceSecret(base);}catch{throw new ApiError('LOCAL_STORAGE');}
+    try{await api('auth/guest',{method:'POST',body:{secret}});}
+    catch(error){if(error.code==='SESSION_REVOKED')forgetDeviceSecret(base);throw error;}
+  }
+  setTestUser(name);
+}
+export async function signOutDevice(){
+  const base=getApiBaseUrl();
+  if(usesDeviceAuth(base)&&deviceSecret(base)){
+    try{await api('auth/logout',{method:'POST',body:{}});}catch(error){if(error.status!==401)throw error;}
+    forgetDeviceSecret(base);
+  }
+  setTestUser('');
+}
+
 export async function api(path, {method = 'GET', body, keepalive = false} = {}) {
   const relative = String(path).replace(/^\/api\/?/, '').replace(/^\//, '');
   if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..')) throw new ApiError('INVALID_REQUEST', 400);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
+    const baseUrl = getApiBaseUrl();
+    const secret=deviceSecret(baseUrl);
+    if(secret)requireDeviceAuth(baseUrl);
     const testUser = getTestUser();
     const testUserId = getTestUserId(testUser);
     const headers = {
       Accept: 'application/json',
       ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
-      ...(testUserId ? {'x-test-user-id': testUserId} : {})
+      ...(secret&&relative!=='auth/guest'?{Authorization:`Bearer ${secret}`} : {}),
+      ...(!usesDeviceAuth(baseUrl)&&testUserId ? {'x-test-user-id': testUserId} : {})
     };
-    const baseUrl = getApiBaseUrl();
     const response = isNativeApp() ? await nativeApiRequest(`${baseUrl}/${relative}`, {
       method, headers, body, signal: controller.signal,
     }) : await fetch(`${baseUrl}/${relative}`, {
@@ -113,6 +139,7 @@ export async function api(path, {method = 'GET', body, keepalive = false} = {}) 
     });
     connectionDiagnostic = {status: response.status, code: 'OK'};
     const data = await response.json().catch(() => null);
+    if(data?.error?.code==='DEVICE_AUTH_REQUIRED'||data?.error?.code==='SESSION_REVOKED')requireDeviceAuth(baseUrl);
     if (response.status === 404 && !data?.error?.code && !data?.code) throw new ApiError('API_NOT_FOUND', 404);
     if (!response.ok) throw new ApiError(data?.error?.code || data?.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'SERVER_ERROR'), response.status);
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('API_RESPONSE_INVALID', response.status);

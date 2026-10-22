@@ -1,18 +1,20 @@
 import './style.css';
 import {Training} from './training.js';
-import {api,ApiError,getTestUser,setTestUser,getConnectionDiagnostic} from './api.js';
+import {api,ApiError,getTestUser,signInGuest,signOutDevice,getConnectionDiagnostic} from './api.js';
 import {Outbox} from './outbox.js';
 import {Diagnostics} from './diagnostics.js';
 import {comparableRounds} from './progress.js';
 import {copyReport,selectReport} from './clipboard.js';
-import {RULES_VERSION} from './config.js';
+import {RULES_VERSION,VERSION} from './config.js';
 import {CameraLease} from './camera-lease.js';
 import {RoundPreparation} from './round-preparation.js';
 import {RoundSound} from './sound.js';
 import {serverTimeAtReceipt} from './round-clock.js';
 import {WeeklyUI} from './weekly.js';
 import {ScreenWakeLock} from './wake-lock.js';
-import {isNativeApp, invitationOrigin, getApiBaseUrl, setNativeApiUrl, profileStorageId} from './platform.js';
+import {isNativeApp, invitationOrigin, getApiBaseUrl, setNativeApiUrl, profileStorageId,migrateLegacyApi} from './platform.js';
+
+migrateLegacyApi();
 
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -21,6 +23,7 @@ const dateLabel=(value,options={day:'numeric',month:'short'})=>new Intl.DateTime
 let state=null,outbox=null,outboxReady=false,tab='today',mode='practice',competitionId=null,busy=false,roundSaving=false,calendarOffset=0,refreshTimer=null,activeInvitation=null,pendingStart=null;
 let sync={pending:0,saving:false,error:null},persistenceError=false,lastTraining=null;
 let loading=false,loadError=null,localPracticeSession=false;
+let authBusy=false,outboxOwner=null;
 let visualSignal=null;
 const pendingWrites=new Set();
 const diagnostics=new Diagnostics();
@@ -72,8 +75,11 @@ async function applyState(next){
     await api('profile',{method:'POST',body:{displayName:preferredName,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}});
     state=await api('state');
   }
+  const owner=profileStorageId(state.profile.id);
+  if(outbox&&outboxOwner!==owner){outbox.close();outbox=null;outboxReady=false;}
   if(!outbox){
-    outbox=new Outbox(profileStorageId(state.profile.id),{api,onStatus:status=>{sync=status;if(status.state&&status.state.serverNow>=state.serverNow){state=status.state;renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();if(!status.pending&&!status.saving)refreshQuietly();}});
+    outboxOwner=owner;
+    outbox=new Outbox(owner,{api,onStatus:status=>{if(outboxOwner!==owner||!state?.profile)return;sync=status;if(status.state&&status.state.serverNow>=state.serverNow){state=status.state;renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();if(!status.pending&&!status.saving)refreshQuietly();}});
     try{await outbox.init();outboxReady=true;}catch(error){outbox.close();outbox=null;outboxReady=false;throw error;}
   }
   renderData();setConnection();renderTraining(engine.state);
@@ -105,7 +111,7 @@ async function load(){
 }
 let quietBusy=false;
 async function refreshQuietly(){
-  if(quietBusy||loading||!navigator.onLine)return;
+  if(quietBusy||loading||authBusy||!navigator.onLine)return;
   if(!state?.profile){await load();return;}
   quietBusy=true;
   try{await applyState(await api('state'));loadError=null;}catch{/* Pending state remains unconfirmed; next refresh retries. */}finally{quietBusy=false;}
@@ -414,14 +420,18 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelCoun
 // is leaving. Server timeout also marks an unconfirmed attempt aborted.
 window.addEventListener('pagehide',()=>{cameraLease.release();wakeLock.release();const round=engine.clock.id;if(round&&engine.roundStatus!=='completed'){api(`rounds/${round}/abort`,{method:'POST',body:{},keepalive:true}).catch(()=>{});}});
 const quickGuestBtn=$('quick-guest-btn');
+async function login(name){
+  if(authBusy||loading)return;
+  authBusy=true;quickGuestBtn.disabled=true;$('test-login-btn').disabled=true;
+  try{await signInGuest(name);$('auth-panel').hidden=true;await load();}
+  catch(error){showError(errorMessage(error));}
+  finally{authBusy=false;quickGuestBtn.disabled=false;$('test-login-btn').disabled=false;}
+}
 if(quickGuestBtn){
   quickGuestBtn.onclick=async()=>{
     const rand=Math.floor(100+Math.random()*900);
     const guestName=`Атлет-${rand}`;
-    setTestUser(guestName);
-    $('auth-panel').hidden=true;
-    text('connection','Загружаем ваш прогресс…');
-    await load();
+    await login(guestName);
   };
 }
 const testLoginForm=$('test-login-form');
@@ -431,17 +441,20 @@ if(testLoginForm){
     const name=($('test-username-input')?.value||'').trim();
     if(!name){showError('Введите имя для входа.');return;}
     if(name.length>40){showError('Имя не должно превышать 40 символов.');return;}
-    setTestUser(name);
-    $('auth-panel').hidden=true;
-    text('connection','Загружаем ваш прогресс…');
-    await load();
+    await login(name);
   };
 }
 const signOutBtn=$('sign-out-btn');
 if(signOutBtn){
-  signOutBtn.onclick=()=>{
+  signOutBtn.onclick=async()=>{
+    if(authBusy||loading||busy||roundSaving||engine.state.roundStatus==='running'){showError('Дождитесь завершения текущего действия перед выходом.');return;}
+    authBusy=true;signOutBtn.disabled=true;
+    try{
     cancelCountdown();engine.stopCamera();
-    setTestUser('');
+    await Promise.all([...pendingWrites]);
+    if(outbox&&await outbox.count()){showError('Сначала дождитесь сохранения повторений, затем выйдите из профиля.');return;}
+    await signOutDevice();
+    outboxOwner=null;
     state=null;
     if(outbox){outbox.close();outbox=null;outboxReady=false;}
     closeProfile(false);
@@ -449,10 +462,15 @@ if(signOutBtn){
     text('connection','Войдите, чтобы открыть свой профиль и результаты.');
     text('profile-toggle','Мой профиль');
     renderTraining(engine.state);
+    location.reload();
+    }catch(error){showError(errorMessage(error));}
+    finally{authBusy=false;signOutBtn.disabled=false;}
   };
 }
+const apkBox=document.querySelector('.apk-download-box');
+if(apkBox)apkBox.hidden=true;
+if(!isNativeApp())fetch('/app-debug.apk.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(info=>{if(apkBox&&info?.version===VERSION)apkBox.hidden=false;}).catch(()=>{});
 if(isNativeApp()){
-  document.querySelector('.apk-download-box')?.setAttribute('hidden','');
   $('server-settings').hidden=false;
   $('server-url').value=getApiBaseUrl();
 }
