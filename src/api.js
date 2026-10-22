@@ -121,6 +121,7 @@ export async function api(path, {method = 'GET', body, keepalive = false} = {}) 
   try {
     const baseUrl = getApiBaseUrl();
     const secret=deviceSecret(baseUrl);
+    if(secret)requireDeviceAuth(baseUrl);
     const testUser = getTestUser();
     const testUserId = getTestUserId(testUser);
     const headers = {

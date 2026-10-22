@@ -12,7 +12,9 @@ import {RoundSound} from './sound.js';
 import {serverTimeAtReceipt} from './round-clock.js';
 import {WeeklyUI} from './weekly.js';
 import {ScreenWakeLock} from './wake-lock.js';
-import {isNativeApp, invitationOrigin, getApiBaseUrl, setNativeApiUrl, profileStorageId} from './platform.js';
+import {isNativeApp, invitationOrigin, getApiBaseUrl, setNativeApiUrl, profileStorageId,migrateLegacyApi} from './platform.js';
+
+migrateLegacyApi();
 
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -460,6 +462,7 @@ if(signOutBtn){
     text('connection','Войдите, чтобы открыть свой профиль и результаты.');
     text('profile-toggle','Мой профиль');
     renderTraining(engine.state);
+    location.reload();
     }catch(error){showError(errorMessage(error));}
     finally{authBusy=false;signOutBtn.disabled=false;}
   };

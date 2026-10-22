@@ -20,6 +20,7 @@
     "test:browser:weekly": "node tests/browser-weekly.mjs",
     "test:browser:fixes": "node tests/browser-rating-fixes.mjs",
     "test:browser:native": "node tests/browser-native-start.mjs",
+    "test:browser:backend": "node tests/browser-backend.mjs",
     "lint": "node --check src/main.js server/worker.js server/api.js server/rules.js server/weeks.js scripts/build.mjs",
     "backend:validate": "node scripts/validate-backend.mjs",
     "backend:deploy": "node --use-env-proxy scripts/deploy-backend.mjs"
