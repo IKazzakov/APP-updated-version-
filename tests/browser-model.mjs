@@ -13,9 +13,9 @@ const browser=await chromium.launch({
   executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,
   args:['--no-sandbox','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream'],
 });
-const results=[],errors=[];
+const results=[],errors=[];let currentPage;
 async function profilePage(context){
-  const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));
+  const page=await context.newPage();currentPage=page;page.on('pageerror',error=>errors.push(error.message));
   await page.goto(`${origin}${process.env.MODEL_TEST_LOGIN_PATH||'/signin-with-chatgpt?return_to=%2F'}`);
   await page.waitForFunction(()=>document.getElementById('connection').textContent.includes('подтверждён'),null,{timeout:20000});
   await page.locator('#today-train').click();return page;
@@ -40,6 +40,7 @@ try{
   assert.ok(assets.some(asset=>asset.path.endsWith('pose_landmarker_full.task')&&asset.status===200));
   assert.ok(assets.some(asset=>asset.path.endsWith('.wasm')&&asset.status===200));
   await page.evaluate(()=>{window.__testCameraTracks=document.getElementById('video').srcObject.getTracks();});
+  await page.locator('#diagnostics>summary').click();
   await page.locator('#stop').click();
   assert.equal(await page.evaluate(()=>document.getElementById('video').srcObject===null&&window.__testCameraTracks.every(track=>track.readyState==='ended')),true);
   results.push({case:'actual-pose-full-load',passed:true,workerInterception:false,fakeCamera:true,inferenceMs:diagnostic.inferenceMs,fps:diagnostic.fps,assets});
@@ -62,4 +63,7 @@ try{
   await mkdir('test-results',{recursive:true});
   await writeFile('test-results/browser-model.json',JSON.stringify({date:new Date().toISOString(),localOnly:true,realCameraAccuracyChecked:false,results,pageErrors:errors},null,2));
   console.log(JSON.stringify({passed:results.length,results,pageErrors:errors},null,2));
+}catch(error){
+  if(currentPage&&!currentPage.isClosed())console.error(await currentPage.evaluate(()=>{const v=document.getElementById('video');return {hidden:document.hidden,video:{readyState:v.readyState,paused:v.paused,currentTime:v.currentTime,rect:v.getBoundingClientRect().toJSON()},metrics:document.getElementById('diag-values').textContent};}));
+  throw error;
 }finally{await browser.close();}
