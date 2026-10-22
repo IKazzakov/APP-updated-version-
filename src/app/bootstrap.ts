@@ -28,6 +28,7 @@ export function bootstrap(app: HTMLElement) {
   });
   const diagnostics = createDiagnostics($('connection'), session, {
     load,
+    openProfile: () => profile.open(),
     retry: async () => {
       if (session.loadError || !session.outbox) await load();
       else await session.retry();

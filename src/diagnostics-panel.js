@@ -37,7 +37,15 @@ const escape = (value) =>
   );
 
 export class DiagnosticsPanel {
-  constructor({ diagnostics, onCheckServer, onRetry, onServerChange, serverUrl, native = false }) {
+  constructor({
+    diagnostics,
+    onCheckServer,
+    onRetry,
+    onServerChange,
+    onSignIn = () => {},
+    serverUrl,
+    native = false,
+  }) {
     this.diagnostics = diagnostics;
     this.root = document.createElement('details');
     this.root.id = 'diagnostics';
@@ -51,6 +59,17 @@ export class DiagnosticsPanel {
       onCheckServer();
     };
     this.$('retry-sync').onclick = onRetry;
+    const signIn = document.createElement('button');
+    signIn.id = 'diagnostics-sign-in';
+    signIn.type = 'button';
+    signIn.className = 'button primary';
+    signIn.textContent = 'Создать профиль';
+    signIn.hidden = true;
+    signIn.onclick = () => {
+      this.root.open = false;
+      onSignIn();
+    };
+    this.$('server-result').after(signIn);
     this.$('server-form').onsubmit = (event) => {
       event.preventDefault();
       try {
@@ -121,11 +140,12 @@ export class DiagnosticsPanel {
     this.$('retry-sync').disabled = loading;
     this.$('retry-sync').textContent = hasQueue ? 'Повторить сохранение' : 'Повторить подключение';
   }
-  connection({ loading, report }) {
+  connection({ loading, report, needsSignIn = false }) {
     this.$('check-server').disabled = loading;
+    this.$('diagnostics-sign-in').hidden = !needsSignIn || loading;
     this.$('server-result').textContent = loading
       ? 'Проверяем соединение…'
-      : `${report.status ? 'HTTP ' + report.status + ' · ' : ''}${report.code}`;
+      : `${needsSignIn ? 'Сервер доступен. Нажмите «Создать профиль», затем «Быстрый старт (Гость)». ' : ''}${report.status ? 'HTTP ' + report.status + ' · ' : ''}${report.code}`;
   }
   renderMetrics() {
     const v = this.diagnostics.values;

@@ -22,6 +22,13 @@ export function createProfile(
     login = dom(auth),
     life = new Lifecycle();
   function open(pushState = true) {
+    if (!session.state?.profile) {
+      close();
+      auth.hidden = false;
+      auth.scrollIntoView({ block: 'start', behavior: 'smooth' });
+      login.get('quick-guest-btn').focus({ preventScroll: true });
+      return;
+    }
     panel.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
     $('rankings-excluded').checked = !session.state?.profile?.rankingsEnabled;
@@ -131,7 +138,7 @@ export function createProfile(
     $('sign-out-btn').disabled = session.authBusy;
     auth.hidden = !!state?.profile && !session.loadError;
     if (!state?.profile) {
-      toggle.textContent = 'Мой профиль';
+      toggle.textContent = 'Создать профиль';
       const input = login.get('test-username-input');
       if (!input.value) input.value = getTestUser();
       return;

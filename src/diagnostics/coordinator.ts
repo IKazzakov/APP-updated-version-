@@ -1,7 +1,7 @@
 import { Diagnostics } from '../diagnostics.js';
 import { DiagnosticsPanel } from '../diagnostics-panel.js';
 import { getConnectionDiagnostic } from '../api.js';
-import { errorMessage } from '../shared/errors.ts';
+import { errorMessage, errorInfo } from '../shared/errors.ts';
 import { isNativeApp, getApiBaseUrl } from '../platform.js';
 import type { SessionService } from '../services/session.ts';
 export function createDiagnostics(
@@ -11,6 +11,7 @@ export function createDiagnostics(
     load: () => Promise<void>;
     retry: () => Promise<void>;
     changeServer: (url: string) => void;
+    openProfile: () => void;
   },
 ) {
   const diagnostics = new Diagnostics();
@@ -21,24 +22,31 @@ export function createDiagnostics(
     onCheckServer: actions.load,
     onRetry: actions.retry,
     onServerChange: actions.changeServer,
+    onSignIn: actions.openProfile,
   });
   return {
     diagnostics,
     render() {
       const { sync, loading, loadError, persistenceError, state } = session;
+      const needsSignIn = !state?.profile && errorInfo(loadError).status === 401;
       connection.classList.toggle(
         'warning',
-        !navigator.onLine || !!sync.error || persistenceError || !!loadError,
+        !navigator.onLine || !!sync.error || persistenceError || (!!loadError && !needsSignIn),
       );
-      panel.connection({ loading, report: getConnectionDiagnostic() });
-      panel.sync({ error: !!sync.error || !!loadError, loading, hasQueue: !!session.outbox });
+      panel.connection({ loading, report: getConnectionDiagnostic(), needsSignIn });
+      panel.sync({
+        error: !!sync.error || (!!loadError && !needsSignIn),
+        loading,
+        hasQueue: !!session.outbox,
+      });
       if (loading) {
         connection.textContent = 'Подключаемся к серверу…';
         return;
       }
       if (!state?.profile) {
-        connection.textContent =
-          'Профиль не загружен. Камеру и подсчёт можно проверить в обычной тренировке.';
+        connection.textContent = needsSignIn
+          ? 'Сервер доступен. Нажмите «Быстрый старт (Гость)», чтобы создать профиль.'
+          : 'Профиль не загружен. Камеру и подсчёт можно проверить в обычной тренировке.';
         return;
       }
       if (loadError) {

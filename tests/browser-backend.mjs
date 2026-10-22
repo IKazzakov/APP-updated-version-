@@ -20,6 +20,22 @@ async function actor(native=false){
   }};
  });
  const p=await c.newPage();p.on('pageerror',e=>errors.push(e.message));await p.goto(origin);await p.locator('#auth-panel').waitFor({state:'visible'});
+ if(native){
+  await p.waitForFunction(()=>document.getElementById('server-result').textContent.includes('DEVICE_AUTH_REQUIRED'));
+  assert.match(await p.locator('#connection').textContent(),/Сервер доступен.*Быстрый старт/);
+  assert.equal(await p.locator('#connection').evaluate(el=>el.classList.contains('warning')),false);
+  await p.locator('#profile-toggle').click();
+  assert.equal(await p.locator('#profile-panel').isVisible(),false);
+  assert.equal(await p.locator('#auth-panel').isVisible(),true);
+  await p.locator('#diagnostics>summary').click();
+  assert.equal(await p.locator('#retry-sync').isVisible(),false);
+  await p.locator('#diagnostics-sign-in').click();
+  assert.equal(await p.locator('#diagnostics').evaluate(el=>el.open),false);
+  assert.equal(await p.locator('#quick-guest-btn').evaluate(el=>document.activeElement===el),true);
+  const posts=await p.evaluate(()=>window.bridgeCalls.filter(call=>call.method==='POST').length);
+  assert.equal(posts,0);
+  results.push('Первый запуск APK: 401 объясняет вход, профиль и диагностика ведут к гостевому старту без создания лишних сессий');
+ }
  await p.locator('#test-username-input').fill('Одинаковое имя');await p.locator('#test-login-btn').click();await p.waitForFunction(()=>document.getElementById('connection').textContent.includes('подтверждён'));
  return {c,p};
 }
