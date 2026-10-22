@@ -133,6 +133,25 @@ jobs:
           BACKEND_TARGET: staging
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify the public test APK download
+        run: |
+          node --input-type=module <<'JS_APK'
+          import assert from 'node:assert/strict';
+          import {readFile} from 'node:fs/promises';
+          import {createHash} from 'node:crypto';
+          const deployment = JSON.parse(await readFile('work/backend/deployment.json', 'utf8'));
+          const expected = JSON.parse(await readFile('public/app-debug.apk.json', 'utf8'));
+          assert.equal(deployment.target, 'staging');
+          assert.match(deployment.url, /^https:\/\/movement-test-api-staging\.[a-z0-9-]+\.workers\.dev$/);
+          const url = deployment.url + '/app-debug.apk';
+          const response = await fetch(url + '?sha256=' + expected.sha256, {signal: AbortSignal.timeout(60000)});
+          assert.ok(response.ok, 'Public APK download failed: HTTP ' + response.status);
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          assert.equal(bytes.length, expected.size);
+          assert.equal(createHash('sha256').update(bytes).digest('hex'), expected.sha256);
+          console.log('Verified public APK download:', url);
+          console.log('APK SHA-256:', expected.sha256);
+          JS_APK
       - uses: actions/upload-artifact@v4
         with:
           name: staging-deployment
