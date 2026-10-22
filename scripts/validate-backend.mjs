@@ -1,0 +1,14 @@
+import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+const root=resolve(import.meta.dirname,'..');
+const config=JSON.parse(await readFile(resolve(root,'wrangler.backend.json'),'utf8'));
+if(!config.assets.run_worker_first)throw new Error('API must run before the HTML fallback.');
+config.main=resolve(root,config.main);config.assets.directory=resolve(root,config.assets.directory);
+config.d1_databases[0].migrations_dir=resolve(root,config.d1_databases[0].migrations_dir);
+await mkdir(resolve(root,'work/backend'),{recursive:true});
+const file=resolve(root,'work/backend/wrangler.local.json');
+await writeFile(file,JSON.stringify(config,null,2)+'\n');
+const result=spawnSync(process.execPath,[resolve(root,'node_modules/wrangler/bin/wrangler.js'),'deploy','--dry-run','--config',file,'--outdir',resolve(root,'work/backend/dry-run')],{cwd:root,stdio:'inherit',env:{...process.env,WRANGLER_SEND_METRICS:'false',WRANGLER_LOG_PATH:resolve(root,'work/backend/validate.log')}});
+if(result.status!==0)process.exit(result.status||1);
+console.log('Independent Worker, D1 binding, assets and registration limiter validated.');

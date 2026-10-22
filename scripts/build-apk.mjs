@@ -64,6 +64,7 @@ await mkdir(artifacts, {recursive: true});
 for (const dir of [artifacts, join(root, 'public'), join(root, 'dist', 'client')]) {
   await copyFile(apk, join(dir, 'app-debug.apk'));
   await writeFile(join(dir, 'app-debug.apk.sha256'), `${hash}  app-debug.apk\n`);
+  await writeFile(join(dir, 'app-debug.apk.json'), JSON.stringify({version:pkg.version,sha256:hash,size:bytes.length})+'\n');
 }
 await writeFile(join(artifacts, 'android-manifest.txt'), badging);
 console.log(`APK ${pkg.version}: ${join(artifacts, 'app-debug.apk')} (${bytes.length} bytes)`);

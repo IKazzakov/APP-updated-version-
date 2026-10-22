@@ -1,6 +1,6 @@
 import {handleApi} from './api.js';
 
-function protect(response){
+export function protect(response){
   const headers=new Headers(response.headers);
   headers.set('X-Content-Type-Options','nosniff');
   headers.set('Referrer-Policy','no-referrer');

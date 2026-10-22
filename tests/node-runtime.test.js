@@ -21,10 +21,11 @@ test('Node deployment serves real JSON API, preserves database on restart, handl
     assert.equal(anonymous.status,401);assert.match(anonymous.headers.get('content-type'),/json/);
     const spoof=await fetch(origin+'/api/state',{headers:{'oai-authenticated-user-id':'forged'}});assert.equal(spoof.status,401);
     assert.equal((await fetch(origin+'/api/health').then(r=>r.json())).storage,'sqlite');
-    const user='u_runtime_test';
-    const get=()=>fetch(origin+'/api/state',{headers:{'x-test-user-id':user}}).then(r=>r.json());
+    const user=[...crypto.getRandomValues(new Uint8Array(32))].map(v=>v.toString(16).padStart(2,'0')).join('');
+    const enrollment=await fetch(origin+'/api/auth/guest',{method:'POST',headers:{'Content-Type':'application/json',Origin:origin},body:JSON.stringify({secret:user})});assert.equal(enrollment.status,200);
+    const get=()=>fetch(origin+'/api/state',{headers:{Authorization:`Bearer ${user}`}}).then(r=>r.json());
     const post=async(path,body)=>{
-      const response=await fetch(origin+'/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','x-test-user-id':user,Origin:origin},body:JSON.stringify(body)});
+      const response=await fetch(origin+'/api/'+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${user}`,Origin:origin},body:JSON.stringify(body)});
       assert.equal(response.status,200,await response.clone().text());return response.json();
     };
     assert.equal((await get()).profile,null);
@@ -32,12 +33,12 @@ test('Node deployment serves real JSON API, preserves database on restart, handl
     const id=crypto.randomUUID(),event={id,occurredAt:new Date().toISOString()};
     await post('repetitions',{events:[event]});await post('repetitions',{events:[event]});
     assert.equal((await get()).today.count,1);
-    const proxy=await fetch(origin+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json','x-test-user-id':user,'x-forwarded-proto':'https',Origin:origin.replace('http:','https:')},body:JSON.stringify({displayName:'Тестировщик',timeZone:'UTC'})});
+    const proxy=await fetch(origin+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${user}`,'x-forwarded-proto':'https',Origin:origin.replace('http:','https:')},body:JSON.stringify({displayName:'Тестировщик',timeZone:'UTC'})});
     assert.equal(proxy.status,200);
-    const forbidden=await fetch(origin+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json','x-test-user-id':user,Origin:'https://other.test'},body:'{}'});assert.equal(forbidden.status,403);
-    const unknown=await fetch(origin+'/api/unknown',{headers:{'x-test-user-id':user}});assert.equal(unknown.status,404);assert.match(unknown.headers.get('content-type'),/json/);
+    const forbidden=await fetch(origin+'/api/profile',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${user}`,Origin:'https://other.test'},body:'{}'});assert.equal(forbidden.status,403);
+    const unknown=await fetch(origin+'/api/unknown',{headers:{Authorization:`Bearer ${user}`}});assert.equal(unknown.status,404);assert.match(unknown.headers.get('content-type'),/json/);
     await app.close();app=null;origin=await start();
     const restored=await get();assert.equal(restored.profile.displayName,'Тестировщик');assert.equal(restored.today.count,1);
-    assert.equal((await fetch(origin+'/api/state',{headers:{'x-test-user-id':'u_another'}}).then(r=>r.json())).profile,null);
+    assert.equal((await fetch(origin+'/api/state',{headers:{'x-test-user-id':'u_another'}})).status,401);
   }finally{if(app)await app.close();await rm(root,{recursive:true,force:true});}
 });
