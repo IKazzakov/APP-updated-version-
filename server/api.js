@@ -251,7 +251,7 @@ export async function handleApi(request, env, options={}) {
   try {
     const url=new URL(request.url);
     const userId=request.headers.get('oai-authenticated-user-id')||request.headers.get('x-test-user-id');
-    if (!userId || userId.length > 200) reject(401,'SIGN_IN_REQUIRED','Войдите через ChatGPT, чтобы сохранить результаты.');
+    if (!userId || userId.length > 200) reject(401,'SIGN_IN_REQUIRED','Войдите в профиль, чтобы сохранить результаты.');
     if (!env.DB) reject(503,'STORAGE_UNAVAILABLE','Серверное хранение ещё не подключено. Результаты пока не сохраняются.');
     if (request.method !== 'GET' && request.method !== 'POST') reject(405,'METHOD_NOT_ALLOWED','Этот способ запроса недоступен.');
     if (request.method === 'POST' && request.headers.get('origin') !== url.origin) reject(403,'ORIGIN_FORBIDDEN','Откройте приложение напрямую и повторите действие.');

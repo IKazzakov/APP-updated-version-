@@ -7,9 +7,12 @@ import {fileURLToPath} from 'node:url';
 import {handleApi} from '../server/api.js';
 import worker from '../server/worker.js';
 import {createTestDatabase} from './server-db.js';
+import {build} from 'esbuild';
 
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const clientRoot=resolve(root,'dist/client');
+// Exercise the same Capacitor-dependent API module as the production bundle.
+const testApiSource=(await build({entryPoints:[resolve(root,'src/api.js')],bundle:true,write:false,format:'esm',platform:'browser'})).outputFiles[0].text;
 const port=Number(process.env.TESTSERVERPORT ?? 4175);
 if (!Number.isInteger(port) || port<0 || port>65535) throw new Error('TESTSERVERPORT must be a local TCP port');
 await stat(resolve(clientRoot,'index.html')).catch(()=>{throw new Error('No dist/client/index.html. Run npm run build before starting browser-server.');});
@@ -85,7 +88,7 @@ async function dispatch(request) {
   if(url.pathname.startsWith('/__test/source/')) {
     const name=url.pathname.slice('/__test/source/'.length);
     if(!['outbox.js','api.js','config.js','progress.js'].includes(name))return json({error:'Source not allowed'},404);
-    return new Response(await readFile(resolve(root,'src',name)),{headers:{'content-type':'text/javascript; charset=utf-8','cache-control':'no-store'}});
+    return new Response(name==='api.js'?testApiSource:await readFile(resolve(root,'src',name)),{headers:{'content-type':'text/javascript; charset=utf-8','cache-control':'no-store'}});
   }
   if(url.pathname.startsWith('/__test/'))return json({error:'Unknown test endpoint'},404);
   // Ignore every user-supplied identity header. Only this TEST server maps its

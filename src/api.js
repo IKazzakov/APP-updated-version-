@@ -1,3 +1,6 @@
+import {getApiBaseUrl, isNativeApp, nativeApiRequest} from './platform.js';
+export {getApiBaseUrl} from './platform.js';
+
 const MESSAGES = Object.freeze({
   SIGN_IN_REQUIRED: 'Войдите в профиль, чтобы сохранить результат.',
   STORAGE_UNAVAILABLE: 'Серверное хранилище временно недоступно. Повторите позже.',
@@ -45,12 +48,17 @@ const MESSAGES = Object.freeze({
   ROUND_NOT_ACTIVE: 'Раунд уже завершён или прерван.',
   RULES_MISMATCH: 'Версия правил изменилась. Обновите страницу перед новым раундом.',
   ORIGIN_FORBIDDEN: 'Откройте приложение по его прямой ссылке.',
-  NETWORK: 'Нет связи с сервером. Данные на устройстве будут отправлены повторно.',
+  NETWORK: 'Нет связи с сервером. Проверьте интернет и адрес опубликованного сервера.',
   TIMEOUT: 'Сервер не ответил вовремя. Повторная отправка безопасна.',
   LOCAL_STORAGE: 'Не удалось сохранить данные на устройстве. Освободите место и повторите попытку.',
   OUTBOX_CONFLICT: 'Локальные данные повторения не совпали. Требуется проверка.',
   SERVER_ERROR: 'Не удалось сохранить данные на сервере. Повторная отправка безопасна.',
+  API_NOT_FOUND: 'По этому адресу нет API приложения. Проверьте опубликованный адрес сервера.',
+  API_RESPONSE_INVALID: 'Сервер вернул страницу вместо данных API. Проверьте адрес и доступ к серверу.',
 });
+
+let connectionDiagnostic = {status: null, code: 'NOT_CHECKED'};
+export const getConnectionDiagnostic = () => ({...connectionDiagnostic});
 
 export class ApiError extends Error {
   constructor(code = 'SERVER_ERROR', status = 0) {
@@ -82,13 +90,6 @@ export function getTestUserId(name) {
   return 'u_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function getApiBaseUrl() {
-  if (typeof window !== 'undefined' && (window.Capacitor?.isNativePlatform?.() || window.location.protocol === 'capacitor:')) {
-    return 'https://ais-pre-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api';
-  }
-  return '/api';
-}
-
 export async function api(path, {method = 'GET', body, keepalive = false} = {}) {
   const relative = String(path).replace(/^\/api\/?/, '').replace(/^\//, '');
   if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..')) throw new ApiError('INVALID_REQUEST', 400);
@@ -103,18 +104,23 @@ export async function api(path, {method = 'GET', body, keepalive = false} = {}) 
       ...(testUserId ? {'x-test-user-id': testUserId} : {})
     };
     const baseUrl = getApiBaseUrl();
-    const isCross = baseUrl.startsWith('http');
-    const response = await fetch(`${baseUrl}/${relative}`, {
-      method, credentials: isCross ? 'include' : 'same-origin', cache: 'no-store', keepalive,
+    const response = isNativeApp() ? await nativeApiRequest(`${baseUrl}/${relative}`, {
+      method, headers, body, signal: controller.signal,
+    }) : await fetch(`${baseUrl}/${relative}`, {
+      method, credentials: 'same-origin', cache: 'no-store', keepalive,
       headers,
       ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: controller.signal,
     });
+    connectionDiagnostic = {status: response.status, code: 'OK'};
     const data = await response.json().catch(() => null);
+    if (response.status === 404 && !data?.error?.code && !data?.code) throw new ApiError('API_NOT_FOUND', 404);
     if (!response.ok) throw new ApiError(data?.error?.code || data?.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'SERVER_ERROR'), response.status);
-    if (!data || typeof data !== 'object') throw new ApiError('SERVER_ERROR', response.status);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('API_RESPONSE_INVALID', response.status);
+    if (relative === 'state' && (!Number.isFinite(data.serverNow) || !Array.isArray(data.days) || !Array.isArray(data.rounds) || !Array.isArray(data.competitions))) throw new ApiError('API_RESPONSE_INVALID', response.status);
     return data;
   } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(error?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK');
+    const failure = error instanceof ApiError ? error : new ApiError(error?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK');
+    connectionDiagnostic = {status: failure.status || null, code: failure.code};
+    throw failure;
   } finally { clearTimeout(timeout); }
 }

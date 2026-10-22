@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import {CameraLease} from '../src/camera-lease.js';
 
 const turn = () => new Promise(resolve => setImmediate(resolve));
+test('single-Activity Android can request camera on WebViews without Web Locks; browser tabs still require a lock',async()=>{
+  const native=new CameraLease({locks:null,native:true});
+  assert.equal(await native.acquire(),true);assert.equal(native.held,true);
+  native.release();assert.equal(native.held,false);
+  const web=new CameraLease({locks:null});assert.equal(await web.acquire(),false);
+});
 class FakeLocks {
   constructor() {this.busy = false; this.requests = 0; this.beforeDispatch = null;}
   async request(name, options, callback) {

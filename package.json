@@ -1,27 +1,31 @@
 {
   "name": "exercise-counter",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node scripts/prepare-assets.mjs && vite",
+    "dev": "node scripts/prepare-assets.mjs && node server/node.js --dev",
+    "dev:sites": "node scripts/prepare-assets.mjs && vite",
+    "start": "node server/node.js",
     "build": "node scripts/build.mjs",
     "test": "node scripts/test.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "db:migrate:local": "node scripts/dev-migrate.mjs",
-    "build:android": "npm run build && npx cap sync android",
-    "cap:sync": "npx cap sync android",
+    "build:android": "npm run build && node scripts/sync-android.mjs",
+    "build:apk": "node scripts/build-apk.mjs",
+    "cap:sync": "node scripts/sync-android.mjs",
     "test:browser": "node tests/browser-mvp.mjs",
     "test:browser:model": "node tests/browser-model.mjs",
     "test:browser:auto": "node tests/browser-auto-start.mjs",
     "test:browser:weekly": "node tests/browser-weekly.mjs",
     "test:browser:fixes": "node tests/browser-rating-fixes.mjs",
+    "test:browser:native": "node tests/browser-native-start.mjs",
     "lint": "node --check src/main.js server/worker.js server/api.js server/rules.js server/weeks.js scripts/build.mjs"
   },
   "dependencies": {
-    "@capacitor/android": "^8.5.3",
-    "@capacitor/cli": "^8.5.3",
-    "@capacitor/core": "^8.5.3",
+    "@capacitor/android": "8.5.3",
+    "@capacitor/cli": "8.5.3",
+    "@capacitor/core": "8.5.3",
     "@mediapipe/tasks-vision": "0.10.32"
   },
   "devDependencies": {

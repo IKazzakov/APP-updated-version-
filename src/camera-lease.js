@@ -4,11 +4,15 @@ const CAMERA_LOCK = 'exercise-counter-camera';
 // exercise simultaneously. Chrome releases the lock if the tab is destroyed.
 // There is deliberately no timer or localStorage lease that could go stale.
 export class CameraLease {
-  constructor({locks = globalThis.navigator?.locks} = {}) {
+  constructor({locks = globalThis.navigator?.locks, native = false} = {}) {
+    this.native = native;
     this.locks = locks; this.supported = typeof locks?.request === 'function';
     this.held = false; this.attempt = null; this.reason = this.supported ? null : 'unsupported';
   }
   async acquire() {
+    // The native app has one Activity/WebView; older Android WebViews may
+    // omit Web Locks. Browser tabs still require the cross-tab lock.
+    if (this.native && !this.supported) {this.held = true; this.reason = null; return true;}
     if (!this.supported) {this.reason = 'unsupported'; return false;}
     if (this.held) return true;
     if (this.attempt) return this.attempt.available;

@@ -2,6 +2,7 @@ import {VERSION, VISION_VERSION, RULES_VERSION, MODELS} from './config.js';
 
 const ERRORS = new Set(['AUTH_REQUIRED', 'FORBIDDEN', 'NETWORK', 'TIMEOUT', 'LOCAL_STORAGE', 'INVALID_EVENT', 'SERVER_ERROR', 'CAMERA_DENIED', 'CAMERA_UNAVAILABLE', 'CAMERA_ENDED', 'MODEL_LOAD', 'MODEL_RUNTIME', 'ROUND_ABORTED', 'SAVE_FAILED', 'UNKNOWN_ERROR', 'ROUND_START_FAILED', 'START_POSE_LOST']);
 const ERROR_NAMES = {NotAllowedError: 'CAMERA_DENIED', SecurityError: 'CAMERA_DENIED', NotFoundError: 'CAMERA_UNAVAILABLE', NotReadableError: 'CAMERA_UNAVAILABLE'};
+const CONNECTION_CODES=['NOT_CHECKED','OK','AUTH_REQUIRED','SIGN_IN_REQUIRED','UNAUTHORIZED','FORBIDDEN','STORAGE_UNAVAILABLE','API_NOT_FOUND','API_RESPONSE_INVALID','NETWORK','TIMEOUT','SERVER_ERROR','ORIGIN_FORBIDDEN'];
 const enumValue = (value, options, fallback = null) => options.includes(value) ? value : fallback;
 const number = (value, maximum) => Number.isFinite(value) && value >= 0 && value <= maximum ? Math.round(value * 10) / 10 : null;
 
@@ -21,6 +22,7 @@ export class Diagnostics {
   update(state = {}) {
     // Do not spread engine, API, profile or session objects into a report.
     this.values = {
+      apiConnection: {status:number(state.apiConnection?.status,599),code:enumValue(state.apiConnection?.code,CONNECTION_CODES)},
       mode: enumValue(state.mode, ['practice', 'personal', 'competition']),
       camera: state.cameraOn ? 'Включена' : 'Выключена',
       facing: enumValue(state.facing, ['user', 'environment']), model: MODELS.full.name,
