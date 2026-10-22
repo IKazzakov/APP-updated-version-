@@ -41,6 +41,22 @@
   настоящий API с изолированной SQLite.
 - Полный локальный набор: 176 unit/integration-тестов; восемь целевых
   браузерных сценариев; typecheck, format:check, lint, build, backend:validate.
+- [CI 39844211777](https://github.com/rojoscarlos-cpu/Test/actions/runs/39844211777):
+  176 unit/integration-тестов, 47 браузерных сценариев, Android-сборка и staging
+  прошли. Публичное скачивание проверено по полному SHA-256 файла; рабочий
+  deploy пропущен.
+
+## APK с исправлением
+
+[Скачать 2.5.3](https://movement-test-api-staging.rojoscarlos93.workers.dev/app-debug.apk?sha256=d7e57351e5e3046c0e8a1c6a6035df6c6929616c60c842e3da8d7de660b10186).
+[Закреплённый файл в GitHub](https://github.com/rojoscarlos-cpu/Test/raw/8c65e6654cd982b805dc7781860117e693bd3d17/public/app-debug.apk).
+
+- Пакет: `com.movement.squat.staging.ui`, versionCode `20503`.
+- Размер: 20435443 байт.
+- SHA-256: `d7e57351e5e3046c0e8a1c6a6035df6c6929616c60c842e3da8d7de660b10186`.
+- Прежний сертификат: `122721cc9aa1600dca3ba86f4318f0e3c43c3c4b562a5c8d3114ea4194dfc0de`.
+- Проверены подпись, ZIP, новый клиент, адрес staging и неизменность Worker,
+  модели и WASM. Ключ сохраняется в Actions secret и прежней резервной копии.
 
 ## Проверка на телефонах
 
