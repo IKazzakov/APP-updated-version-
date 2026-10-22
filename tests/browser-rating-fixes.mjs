@@ -13,7 +13,7 @@ async function actor(user){const c=await browser.newContext({viewport:{width:393
 try{
   const setup=await browser.newContext();await post(setup,'/__test/reset',{});await setup.close();
   const a=await actor('alice'),b=await actor('bob');
-  assert.equal((await state(a.c)).profile.rankingsEnabled,true);await a.p.locator('#profile-toggle').click();assert.equal(await a.p.locator('#rankings-excluded').isChecked(),false);assert.ok((await a.p.locator('#profile-panel').textContent()).includes('Не участвовать в общих рейтингах'));await a.p.locator('#profile-toggle').click();
+  assert.equal((await state(a.c)).profile.rankingsEnabled,true);await a.p.locator('#profile-toggle').click();assert.equal(await a.p.locator('#rankings-excluded').isChecked(),false);assert.ok((await a.p.locator('#profile-panel').textContent()).replace(/\s+/g,' ').includes('Не участвовать в общих рейтингах'));await a.p.locator('#profile-toggle').click();
   let requests=0,fail=false;
   await a.p.route(/\/api\/(?:v2\/)?leaderboards(?:\?|$)/,async route=>{requests++;await a.p.waitForTimeout(350);if(fail)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{code:'SERVER_ERROR'}})});return route.continue();});
   await a.p.locator('[data-tab="competitions"]').click();await a.p.locator('#competition-tab-points').click();await a.p.waitForFunction(()=>document.querySelectorAll('#league-table tbody tr').length===2&&!document.getElementById('refresh-league').disabled);

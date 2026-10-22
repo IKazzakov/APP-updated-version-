@@ -13,7 +13,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,28 +21,20 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm run lint
       - run: npm test
       - run: npm run build
       - run: npm run backend:validate
       - name: Install browser test driver
         run: npm install --prefix "$RUNNER_TEMP/browser-tools" --no-save playwright-core@1.58.2
-      - name: Check native transport and diagnostics in the browser
+      - name: Check all browser scenarios in isolated cookie and device fixtures
         env:
           NODE_PATH: ${{ runner.temp }}/browser-tools/node_modules
           CHROMIUM_PATH: /usr/bin/google-chrome
-          TESTSERVERPORT: '4178'
-          TEST_AUTH_MODE: device
-          TEST_ORIGIN: http://127.0.0.1:4178
-        run: |
-          node tests/browser-server.mjs > work/browser-ci.log 2>&1 &
-          SERVER_PID=$!
-          trap 'kill "$SERVER_PID"' EXIT
-          for attempt in $(seq 1 40); do
-            if curl -fsS http://127.0.0.1:4178/api/health > /dev/null; then break; fi
-            sleep 1
-          done
-          node tests/browser-backend.mjs
-          node tests/browser-diagnostics.mjs
+          TESTSERVERPORT: '4185'
+        run: npm run test:browser:all
       - uses: actions/upload-artifact@v4
         if: always()
         with:

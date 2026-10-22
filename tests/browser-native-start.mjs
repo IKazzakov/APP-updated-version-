@@ -2,15 +2,16 @@
 // Capacitor HTTP bridge. Android's permission dialog requires a physical device.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-import {POSE_WORKER} from './browser-pose-fixture.mjs';
+import {POSE_WORKER,OBSERVE_POSES} from './browser-pose-fixture.mjs';
 const require=createRequire(import.meta.url);
 const {chromium}=require('playwright-core');
 const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:4175';
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
-const errors=[],results=[];
+const errors=[],results=[];let currentPage;
 async function context(failure){
   const c=await browser.newContext({viewport:{width:393,height:852},isMobile:true,permissions:['camera'],serviceWorkers:'block'});
   c.setDefaultTimeout(15000);
+  await c.addInitScript(OBSERVE_POSES);
   await c.route('**/assets/vision.worker.js*',r=>r.fulfill({contentType:'text/javascript',body:POSE_WORKER}));
   await c.addInitScript(({failure})=>{
     window.androidBridge={};window.nativeCalls=[];window.cameraRequests=0;
@@ -32,11 +33,11 @@ async function context(failure){
       },
     };
   },{failure});
-  const p=await c.newPage();p.on('pageerror',e=>{errors.push(e.message);console.error('Page error:',e.message);});
+  const p=await c.newPage();currentPage=p;p.on('pageerror',e=>{errors.push(e.message);console.error('Page error:',e.message);});
   await p.goto(origin);
   return {c,p};
 }
-async function pose(c,name,ms=450){await c.request.post(origin+'/__test/pose',{data:{name},headers:{Origin:origin}});await new Promise(r=>setTimeout(r,ms));}
+async function pose(c,name,ms=450){await c.request.post(origin+'/__test/pose',{data:{name},headers:{Origin:origin}});await Promise.all(c.pages().map(p=>p.waitForFunction(expected=>window.testPoseFrames.name===expected,name)));await new Promise(r=>setTimeout(r,ms));}
 try{
   await fetch(origin+'/__test/reset',{method:'POST'});
   const offline=await context('network');
@@ -62,7 +63,7 @@ try{
   await offline.p.locator('#diagnostics>summary').click();
   await offline.p.locator('#server-settings summary').click();
   await offline.p.locator('#server-url').fill('https://new-server.test/');await offline.p.locator('#server-form button').click();
-  await offline.p.waitForFunction(()=>document.getElementById('server-url').value==='https://new-server.test/api');
+  await offline.p.waitForFunction(()=>document.getElementById('server-url')?.value==='https://new-server.test/api');
   assert.equal(await offline.p.evaluate(()=>localStorage.getItem('movement.nativeApi')),'https://new-server.test/api');
   results.push('Адрес API меняется в APK и сохраняется после перезапуска');
   await offline.c.close();
@@ -98,4 +99,4 @@ try{
   results.push('Нативный HTTP-мост: гостевой профиль создаётся, POST передаёт Origin и ID, повторение сохраняется настоящим API в SQLite');
   await online.c.close();
   assert.deepEqual(errors,[]);console.log(JSON.stringify({passed:results.length,results},null,2));
-}finally{await browser.close();}
+}catch(error){if(currentPage&&!currentPage.isClosed()){console.error(await currentPage.evaluate(()=>({count:document.getElementById('count')?.textContent,daily:document.getElementById('daily-number')?.textContent,connection:document.getElementById('connection')?.textContent,error:document.getElementById('app-error')?.textContent,frame:window.testPoseFrames})));await currentPage.screenshot({path:'work/native-start-error.png'});}throw error;}finally{await browser.close();}

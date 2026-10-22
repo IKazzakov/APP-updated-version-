@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {mkdir,writeFile} from 'node:fs/promises';
-import {POSE_WORKER} from './browser-pose-fixture.mjs';
+import {POSE_WORKER,OBSERVE_POSES} from './browser-pose-fixture.mjs';
 const require=createRequire(import.meta.url);let chromium;try{({chromium}=require('playwright-core'));}catch{({chromium}=require('/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright-core'));}
 const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:4175';
 const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
@@ -10,6 +10,7 @@ try{
  const context=await browser.newContext({viewport:{width:393,height:852},isMobile:true,permissions:['camera']});
  context.setDefaultTimeout(30000);
  await context.route('**/assets/vision.worker.js*',r=>r.fulfill({contentType:'text/javascript',body:POSE_WORKER}));
+ await context.addInitScript(OBSERVE_POSES);
  // Observe actual Web Audio API scheduling, without replacing the audio engine.
  await context.addInitScript(()=>{window.testTones=[];const C=window.AudioContext;if(C){const create=C.prototype.createOscillator;C.prototype.createOscillator=function(){const node=create.call(this),start=node.start.bind(node);node.start=at=>{window.testTones.push({frequency:node.frequency.value,at,state:this.state});return start(at);};return node;};}});
  page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
@@ -35,8 +36,8 @@ try{
  await page.route(/\/api\/(?:v2\/)?rounds\/start$/,async route=>{await post('/__test/pose',{name:'missing'});await page.waitForTimeout(1800);const response=await route.fetch();await route.fulfill({response});});
  await page.locator('#start').click();await page.waitForFunction(()=>!document.getElementById('early-stop').hidden,null,{timeout:20000});assert.equal(requests,2);assert.equal(await page.locator('#countdown').textContent(),'Старт!');const active=(await state()).activeRound;assert.ok(active);assert.equal(active.endsAt-active.startsAt,60000);assert.equal(await page.locator('#count').textContent(),'0');
  results.push('Подтверждение через 1,8 секунды при пропавшем теле запускает минуту, без скрытой отмены');
- await post('/__test/pose',{name:'stand'});await page.waitForFunction(()=>document.getElementById('state').textContent==='Идёт подсчёт');
- for(const [name,ms] of [['down',320],['bottom',500],['down',240],['stand',600]]){await post('/__test/pose',{name});await page.waitForTimeout(ms);}
+ const beforeCycle=await page.evaluate(()=>window.testPoseFrames.sequence);await post('/__test/pose',{name:'stand'});await page.waitForFunction(sequence=>window.testPoseFrames.sequence>=sequence+3&&window.testPoseFrames.name==='stand'&&document.getElementById('state').textContent==='Идёт подсчёт',beforeCycle);
+ for(const [name,ms] of [['down',320],['bottom',500],['down',240],['stand',600]]){await post('/__test/pose',{name});await page.waitForFunction(expected=>window.testPoseFrames.name===expected,name);await page.waitForTimeout(ms);}
  await page.waitForFunction(()=>document.getElementById('count').textContent==='1');
  const tones=await page.evaluate(()=>window.testTones);assert.equal(tones.filter(t=>t.frequency===1320).length,2);assert.ok(tones.some(t=>t.frequency===520));assert.ok(tones.some(t=>t.frequency===660));
  await post('/__test/pose',{name:'missing'});await page.waitForTimeout(1100);assert.equal(await page.locator('#countdown').isVisible(),false);assert.equal(requests,2);assert.equal((await state()).activeRound.id,active.id);results.push('Единственное подтверждение запускает 60 секунд; потеря тела во время минуты не возвращает отсчёт');

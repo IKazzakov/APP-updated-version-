@@ -116,6 +116,11 @@ export class DiagnosticsPanel {
     activity.record('app.ready');
     this.render();
   }
+  sync({ error, loading, hasQueue }) {
+    this.$('retry-sync').hidden = !error;
+    this.$('retry-sync').disabled = loading;
+    this.$('retry-sync').textContent = hasQueue ? 'Повторить сохранение' : 'Повторить подключение';
+  }
   connection({ loading, report }) {
     this.$('check-server').disabled = loading;
     this.$('server-result').textContent = loading
