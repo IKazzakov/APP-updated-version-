@@ -3,6 +3,11 @@ apply plugin: 'com.android.application'
 def appConfig = new groovy.json.JsonSlurper().parse(rootProject.file('../capacitor.config.json'))
 def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json')).version
 def versionParts = appVersion.tokenize('.').collect { it.toInteger() }
+def stagingBuild = appConfig.appId.startsWith('com.movement.squat.staging')
+def stagingKeystore = System.getenv('MOVEMENT_STAGING_KEYSTORE')
+if (stagingBuild && (!stagingKeystore || !file(stagingKeystore).isFile())) {
+    throw new GradleException('Restore the persistent staging signing key before building. See docs/ANDROID_SIGNING.md.')
+}
 
 android {
     namespace = "com.movement.squat"
@@ -20,7 +25,20 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (stagingBuild) {
+            stagingDebug {
+                storeFile file(stagingKeystore)
+                storePassword 'android'
+                keyAlias 'androiddebugkey'
+                keyPassword 'android'
+            }
+        }
+    }
     buildTypes {
+        debug {
+            if (stagingBuild) signingConfig signingConfigs.stagingDebug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

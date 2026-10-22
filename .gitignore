@@ -10,3 +10,5 @@ public/assets/motion.worker.js
 .vinext/
 test-results/
 .data/
+*.keystore
+*.jks
