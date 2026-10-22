@@ -1,0 +1,90 @@
+<section id="tab-training" class="feature-training tab-content" hidden>
+  <div class="intro">
+    <p class="eyebrow">КАМЕРА ПОСЧИТАЕТ ПОВТОРЕНИЯ</p>
+    <h1>Ваше движение<span>.</span></h1>
+  </div>
+  <div id="training-options" class="training-options" role="group" aria-label="Режим тренировки">
+    <button id="practice-mode" class="mode active" aria-pressed="true">Обычная тренировка</button>
+    <button id="personal-mode" class="mode" aria-pressed="false">Мой результат за 60 секунд</button>
+  </div>
+  <div class="mode-description card">
+    <strong id="mode-title">Приседания без таймера</strong>
+    <p id="mode-description">
+      Любой удобный темп, подходы и паузы. Повторения сохраняются в дневном задании.
+    </p>
+    <span id="rules-label" class="muted">Единые правила · squat-v1</span>
+  </div>
+  <div id="sound-controls" class="sound-controls card" hidden>
+    <label class="switch-label"> <input id="sound-enabled" type="checkbox" checked />Звук</label>
+    <button id="test-sound" class="button secondary">Проверить сигнал</button>
+    <p id="sound-status" role="status">Перед отходом от телефона проверьте громкость.</p>
+  </div>
+  <p id="preparation-status" class="preparation-status" role="status" aria-live="polite" hidden></p>
+  <p id="local-practice-note" class="connection warning" role="status" hidden></p>
+  <div class="workspace">
+    <section class="camera-panel" aria-label="Камера и распознавание">
+      <div class="panel-heading">
+        <span id="camera-status">Камера выключена</span>
+        <button
+          id="switch-camera"
+          class="icon-button"
+          aria-label="Переключить переднюю и заднюю камеру"
+        >
+          ⟳ Камера
+        </button>
+      </div>
+      <div class="viewport">
+        <div class="video-layer" id="video-layer">
+          <video id="video" autoplay muted playsinline></video>
+          <canvas id="overlay" aria-hidden="true"> </canvas>
+        </div>
+        <div class="camera-empty" id="camera-empty">
+          <span class="camera-glyph" aria-hidden="true">◎</span>
+          <h2>Здесь появится ваша камера</h2>
+          <p>Нажмите «Начать» и разрешите доступ.<br />Видео остаётся на телефоне.</p>
+        </div>
+        <div id="countdown" class="countdown" role="status" aria-live="assertive" hidden></div>
+        <span class="orientation-note" id="facing-label">Передняя камера · зеркало</span>
+      </div>
+      <div class="camera-bottom">
+        <label class="switch-label">
+          <input type="checkbox" id="show-points" checked />Показывать точки</label
+        >
+        <span class="no-record">Без записи и микрофона</span>
+      </div>
+    </section>
+    <section class="session-panel">
+      <div class="counter-card">
+        <div class="card-top">
+          <span class="eyebrow">ПРИСЕДАНИЯ</span>
+          <span id="session-tag" class="pill">ЭТОТ ПОДХОД</span>
+        </div>
+        <div class="count" id="count" aria-label="Повторений: 0">0</div>
+        <span class="count-caption">засчитано</span>
+        <div id="timer" class="timer" hidden>1:00</div>
+        <div class="action-hint">
+          <h2 id="state">Камера выключена</h2>
+          <p id="hint">Поставьте телефон устойчиво и встаньте в кадр.</p>
+        </div>
+        <p id="model-status" class="model-state" role="status">Распознавание ещё не запущено</p>
+      </div>
+      <div class="controls">
+        <button id="start" class="button primary">Начать</button>
+        <button id="pause" class="button secondary" disabled>Пауза</button>
+        <button id="reset" class="button secondary">Сбросить подход</button>
+        <button id="cancel-preparation" class="button secondary" hidden>Отменить</button>
+        <button id="early-stop" class="button secondary" hidden>Завершить досрочно</button>
+        <button id="stop" class="button text-button" disabled>Выключить камеру</button>
+      </div>
+      <div id="round-result" class="card round-result" role="status" hidden></div>
+      <div class="setup-card">
+        <strong>Как встать</strong>
+        <p>
+          Телефон в 2–3 метрах, примерно на высоте таза. Встаньте боком или немного под углом. Таз,
+          колени и стопы должны целиком помещаться в кадре.
+        </p>
+        <p>Считаем полный цикл: стоя → вниз → снова стоя.</p>
+      </div>
+    </section>
+  </div>
+</section>

@@ -77,6 +77,7 @@ export class Diagnostics {
     this.startEvents = [];
     this.lastTransition = null;
   }
+  /** @param {string} status @param {number|null} [requestMs] */
   startEvent(status, requestMs = null) {
     if (!['requesting', 'confirmed', 'rejected', 'cancelled'].includes(status)) return;
     activity.record('round.start', { stage: status, ms: requestMs });
