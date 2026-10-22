@@ -1,6 +1,6 @@
 import './style.css';
 import {Training} from './training.js';
-import {api,ApiError} from './api.js';
+import {api,ApiError,getTestUser,setTestUser} from './api.js';
 import {Outbox} from './outbox.js';
 import {Diagnostics} from './diagnostics.js';
 import {comparableRounds} from './progress.js';
@@ -11,6 +11,7 @@ import {RoundPreparation} from './round-preparation.js';
 import {RoundSound} from './sound.js';
 import {serverTimeAtReceipt} from './round-clock.js';
 import {WeeklyUI} from './weekly.js';
+import {ScreenWakeLock} from './wake-lock.js';
 
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,18 +23,24 @@ let visualSignal=null;
 const pendingWrites=new Set();
 const diagnostics=new Diagnostics();
 const cameraLease=new CameraLease();
+const wakeLock=new ScreenWakeLock();
 const sound=new RoundSound({onChange:message=>{text('sound-status',message);if(lastTraining)renderTraining(engine.state);}});
-const preparation=new RoundPreparation({onChange:s=>{if(['idle','waiting','error'].includes(s.status))sound.stop();if(lastTraining)renderTraining(engine.state);},onSignal:announceSignal,onStart:launchRound});
+const preparation=new RoundPreparation({onChange:s=>{if(['idle','waiting','error'].includes(s.status)){sound.stop();wakeLock.release();}if(lastTraining)renderTraining(engine.state);},onSignal:announceSignal,onStart:launchRound});
 const inviteMatch=location.hash.match(/^#invite=([a-f0-9]{64})$/);
 let receivedInvite=inviteMatch?.[1]||null;
 if(receivedInvite){sessionStorage.setItem('movement.receivedInvite',receivedInvite);history.replaceState(null,'',location.pathname+location.search);}
 else receivedInvite=sessionStorage.getItem('movement.receivedInvite');
-const engine=new Training($('video'),$('overlay'),{onChange:s=>{if(!s.cameraOn&&!s.starting&&preparation.pending)preparation.cancel();preparation.observe(s);renderTraining(s);},onRepetition:event=>{const write=saveRepetition(event);pendingWrites.add(write);write.finally(()=>pendingWrites.delete(write));},onError:error=>{diagnostics.error(error.name==='NotAllowedError'?'CAMERA_DENIED':'CAMERA_OR_MODEL');showError(lastTraining?.reason||'Не удалось запустить камеру. Повторите попытку.');},onRoundEnd:saveRound});
-const weekly=new WeeklyUI({api,onState:applyState,onError:error=>showError(errorMessage(error)),onPersonal:()=>chooseMode('personal'),onProfile:openProfile,onCompetitions:()=>setTab('competitions')});
-function openProfile(){
+const engine=new Training($('video'),$('overlay'),{onChange:s=>{if(!s.cameraOn&&!s.starting&&preparation.pending)preparation.cancel();if(!s.cameraOn&&!s.starting)wakeLock.release();preparation.observe(s);renderTraining(s);},onRepetition:event=>{const write=saveRepetition(event);pendingWrites.add(write);write.finally(()=>pendingWrites.delete(write));},onError:error=>{wakeLock.release();diagnostics.error(error.name==='NotAllowedError'?'CAMERA_DENIED':'CAMERA_OR_MODEL');showError(lastTraining?.reason||'Не удалось запустить камеру. Повторите попытку.');},onRoundEnd:result=>{wakeLock.release();saveRound(result);}});
+const weekly=new WeeklyUI({api,onState:applyState,onError:error=>showError(errorMessage(error)),onPersonal:()=>chooseMode('personal'),onProfile:()=>openProfile(true),onCompetitions:()=>setTab('competitions')});
+function openProfile(pushState=true){
   $('profile-panel').hidden=false;$('profile-toggle').setAttribute('aria-expanded','true');
   $('rankings-excluded').checked=!state?.profile?.rankingsEnabled;
   $('profile-panel').scrollIntoView({block:'start',behavior:'smooth'});
+  if(pushState){try{history.pushState({panel:'profile'},'');}catch{}}
+}
+function closeProfile(popHistory=false){
+  $('profile-panel').hidden=true;$('profile-toggle').setAttribute('aria-expanded','false');
+  if(popHistory&&history.state?.panel==='profile'){history.back();}
 }
 function showError(message){$('app-error').hidden=!message;text('app-error',message||'');}
 function errorMessage(error){return error instanceof ApiError?error.userMessage:'Не удалось выполнить действие. Проверьте соединение и повторите попытку.';}
@@ -50,7 +57,11 @@ async function applyState(next){
   if(!next)return;
   state=next;
   $('auth-panel').hidden=true;
-  if(!state.profile){await api('profile',{method:'POST',body:{displayName:'Участник',timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}});state=await api('state');}
+  if(!state.profile){
+    const preferredName=getTestUser()||'Участник';
+    await api('profile',{method:'POST',body:{displayName:preferredName,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}});
+    state=await api('state');
+  }
   if(!outbox){
     outbox=new Outbox(state.profile.id,{api,onStatus:status=>{sync=status;if(status.state&&status.state.serverNow>=state.serverNow){state=status.state;renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();if(!status.pending&&!status.saving)refreshQuietly();}});
     try{await outbox.init();outboxReady=true;}catch(error){outbox.close();outbox=null;outboxReady=false;throw error;}
@@ -69,7 +80,12 @@ async function load(){
     const sent=await outbox.flush();if(sent)await applyState(sent);
     if(receivedInvite)await previewInvitation();
   }catch(error){
-    if(error.status===401){$('auth-panel').hidden=false;text('connection','Войдите, чтобы открыть свой профиль и результаты.');}
+    if(error.status===401){
+      $('auth-panel').hidden=false;
+      const input=$('test-username-input');
+      if(input&&!input.value)input.value=getTestUser();
+      text('connection','Войдите, чтобы открыть свой профиль и результаты.');
+    }
     else{showError(errorMessage(error));text('connection','Не удалось загрузить прогресс.');}
     diagnostics.error(error.status===401?'AUTH_REQUIRED':'LOAD_FAILED');
   }
@@ -197,13 +213,13 @@ function announceSignal(kind){
   if(kind==='start')visualSignal={message:'Старт!',until:performance.now()+900};
   if(kind==='end')visualSignal={message:'Время вышло',until:Infinity};
 }
-function cancelCountdown(){visualSignal=null;preparation.cancel();sound.stop();}
+function cancelCountdown(){visualSignal=null;preparation.cancel();sound.stop();wakeLock.release();}
 function updateDiagnostics(s){diagnostics.update({...s,mode,preparationStatus:preparation.status,soundEnabled:sound.enabled,soundAvailable:sound.context?.state==='running'});}
 async function start(){
   if(busy||roundSaving||preparation.pending||!state?.profile||!outboxReady)return;
   showError('');$('round-result').hidden=true;
   visualSignal=null;
-  if(mode==='practice'){busy=true;renderTraining(engine.state);try{if(await acquireCamera())await engine.startPractice();}finally{busy=false;renderTraining(engine.state);}return;}
+  if(mode==='practice'){busy=true;renderTraining(engine.state);try{if(await acquireCamera()){wakeLock.acquire();await engine.startPractice();}}finally{busy=false;renderTraining(engine.state);}return;}
   // AudioContext is created/resumed inside this user gesture, before awaiting
   // the camera permission. Only this explicit action can arm automatic start.
   const audioReady=sound.enabled?sound.unlock():Promise.resolve(false);
@@ -211,9 +227,10 @@ async function start(){
   if(matchMedia('(max-width: 640px)').matches)$('preparation-status').scrollIntoView({block:'start',behavior:'smooth'});
   try{
     if(!await acquireCamera()){preparation.fail();return;}
+    wakeLock.acquire();
     if(generation!==preparation.generation)return;
     const ready=await engine.prepareRound(mode);
-    if(!ready||document.hidden){preparation.cancel();return;}
+    if(!ready||document.hidden){preparation.cancel();wakeLock.release();return;}
     preparation.wait(generation);
   }finally{await audioReady;busy=false;renderTraining(engine.state);}
 }
@@ -338,15 +355,15 @@ $('accept-challenge').onclick=async()=>{
   try{const r=await api('invitations/accept',{method:'POST',body:{token:receivedInvite}});await applyState(r.state);sessionStorage.removeItem('movement.receivedInvite');receivedInvite=null;$('invite-accept').hidden=true;showError('');}
   catch(error){showError(errorMessage(error));$('accept-challenge').disabled=false;}
 };
-$('profile-toggle').onclick=()=>{if($('profile-panel').hidden)openProfile();else{$('profile-panel').hidden=true;$('profile-toggle').setAttribute('aria-expanded','false');}};
-$('profile-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{const response=await api('profile',{method:'POST',body:{displayName:$('display-name').value,timeZone:state.profile.timeZone,rankingsEnabled:!$('rankings-excluded').checked}});await applyState(response.state);$('profile-panel').hidden=true;$('profile-toggle').setAttribute('aria-expanded','false');}catch(error){showError(errorMessage(error));}finally{button.disabled=false;}};
+$('profile-toggle').onclick=()=>{if($('profile-panel').hidden)openProfile();else closeProfile(true);};
+$('profile-form').onsubmit=async event=>{event.preventDefault();const button=event.submitter;button.disabled=true;try{const response=await api('profile',{method:'POST',body:{displayName:$('display-name').value,timeZone:state.profile.timeZone,rankingsEnabled:!$('rankings-excluded').checked}});await applyState(response.state);closeProfile(false);}catch(error){showError(errorMessage(error));}finally{button.disabled=false;}};
 for(const button of document.querySelectorAll('[data-tab]'))button.onclick=()=>setTab(button.dataset.tab);
 $('today-train').onclick=()=>chooseMode('practice');$('practice-mode').onclick=()=>chooseMode('practice');$('personal-mode').onclick=()=>chooseMode('personal');
 $('start').onclick=start;
-$('cancel-preparation').onclick=()=>{cancelCountdown();engine.stopCamera('Подготовка отменена');cameraLease.release();};
+$('cancel-preparation').onclick=()=>{cancelCountdown();engine.stopCamera('Подготовка отменена');cameraLease.release();wakeLock.release();};
 $('sound-enabled').onchange=event=>{sound.setEnabled(event.target.checked);if(sound.enabled)sound.unlock();else text('sound-status','Звук выключен. Ориентируйтесь на экран.');};
 $('test-sound').onclick=async()=>{if(!sound.enabled){text('sound-status','Включите «Звук», чтобы проверить сигнал.');return;}if(await sound.unlock()){sound.stop();if(sound.play('start'))text('sound-status','Проверочный сигнал воспроизведён. Проверьте громкость телефона.');}};$('pause').onclick=()=>engine.state.paused?engine.resume():engine.pause();$('reset').onclick=()=>engine.reset();
-$('stop').onclick=()=>{cancelCountdown();engine.stopCamera();cameraLease.release();};$('early-stop').onclick=()=>engine.abortRound('Завершено досрочно');$('switch-camera').onclick=async()=>{cancelCountdown();busy=true;try{await engine.switchCamera();}finally{busy=false;renderTraining(engine.state);}};$('show-points').onchange=e=>engine.setOverlay(e.target.checked);
+$('stop').onclick=()=>{cancelCountdown();engine.stopCamera();cameraLease.release();wakeLock.release();};$('early-stop').onclick=()=>{engine.abortRound('Завершено досрочно');wakeLock.release();};$('switch-camera').onclick=async()=>{cancelCountdown();busy=true;try{await engine.switchCamera();}finally{busy=false;renderTraining(engine.state);}};$('show-points').onchange=e=>engine.setOverlay(e.target.checked);
 $('month-prev').onclick=()=>{calendarOffset--;renderCalendar();};$('month-next').onclick=()=>{calendarOffset=Math.min(0,calendarOffset+1);renderCalendar();};
 $('create-challenge').onclick=createChallenge;$('refresh-challenges').onclick=refreshQuietly;
 $('cancel-created-challenge').onclick=()=>{if(activeInvitation)cancelChallenge(activeInvitation.id);};
@@ -361,10 +378,54 @@ window.addEventListener('hashchange',()=>{
   history.replaceState(null,'',location.pathname+location.search);
   if(state?.profile)previewInvitation();
 });
+window.addEventListener('popstate',()=>{
+  if(!$('profile-panel').hidden)closeProfile(false);
+});
 window.addEventListener('storage',event=>{if(event.key?.startsWith('movement.'))refreshQuietly();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelCountdown();}else{refreshQuietly();}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelCountdown();wakeLock.release();}else{refreshQuietly();}});
 // Keep the interruption write small and synchronous to initiate while the page
 // is leaving. Server timeout also marks an unconfirmed attempt aborted.
-window.addEventListener('pagehide',()=>{cameraLease.release();const round=engine.clock.id;if(round&&engine.roundStatus!=='completed'){fetch(`/api/rounds/${round}/abort`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});}});
+window.addEventListener('pagehide',()=>{cameraLease.release();wakeLock.release();const round=engine.clock.id;if(round&&engine.roundStatus!=='completed'){fetch(`/api/rounds/${round}/abort`,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}',keepalive:true}).catch(()=>{});}});
+const quickGuestBtn=$('quick-guest-btn');
+if(quickGuestBtn){
+  quickGuestBtn.onclick=async()=>{
+    const rand=Math.floor(100+Math.random()*900);
+    const guestName=`Атлет-${rand}`;
+    setTestUser(guestName);
+    $('auth-panel').hidden=true;
+    text('connection','Загружаем ваш прогресс…');
+    await load();
+  };
+}
+const testLoginForm=$('test-login-form');
+if(testLoginForm){
+  testLoginForm.onsubmit=async event=>{
+    event.preventDefault();
+    const name=($('test-username-input')?.value||'').trim();
+    if(!name){showError('Введите имя для входа.');return;}
+    if(name.length>40){showError('Имя не должно превышать 40 символов.');return;}
+    setTestUser(name);
+    $('auth-panel').hidden=true;
+    text('connection','Загружаем ваш прогресс…');
+    await load();
+  };
+}
+const signOutBtn=$('sign-out-btn');
+if(signOutBtn){
+  signOutBtn.onclick=()=>{
+    setTestUser('');
+    state=null;
+    if(outbox){outbox.close();outbox=null;outboxReady=false;}
+    closeProfile(false);
+    $('auth-panel').hidden=false;
+    text('connection','Войдите, чтобы открыть свой профиль и результаты.');
+    text('profile-toggle','Мой профиль');
+  };
+}
+if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+  });
+}
 refreshTimer=setInterval(()=>{if(!document.hidden&&tab!=='training')refreshQuietly();},30000);
 renderTraining(engine.state);load();

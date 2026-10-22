@@ -1,0 +1,6 @@
+{
+  "summary":  "План внедрения Capacitor для сборки Android APK: интеграция библиотек @capacitor/core и @capacitor/android, генерация нативного проекта, настройка разрешений камеры и сети в AndroidManifest.xml, привязка API к публичному серверу и подготовка скрипта сборки готового файла app-debug.apk для отправки друзьям.",
+  "updatedAt":  "2026-10-22T08:27:12.108474845Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

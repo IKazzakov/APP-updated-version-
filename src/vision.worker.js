@@ -10,12 +10,22 @@ self.onmessage=async({data})=>{
       if(buffer.byteLength<100000)throw new Error('Получен неверный файл модели. Откройте прямую ссылку сайта и войдите в аккаунт.');
       self.postMessage({type:'status',message:'Загрузка модели · запуск WASM'});
       const fileset=await FilesetResolver.forVisionTasks(data.wasm);
-      model=await PoseLandmarker.createFromOptions(fileset,{
-        baseOptions:{modelAssetBuffer:buffer,delegate:'CPU'},runningMode:'VIDEO',
-        numPoses:1,minTrackingConfidence:0.6,minPoseDetectionConfidence:0.6,
-        minPosePresenceConfidence:0.6,outputSegmentationMasks:false,
-      });
-      self.postMessage({type:'ready',delegate:'CPU'});
+      let delegate='GPU';
+      try{
+        model=await PoseLandmarker.createFromOptions(fileset,{
+          baseOptions:{modelAssetBuffer:buffer,delegate:'GPU'},runningMode:'VIDEO',
+          numPoses:1,minTrackingConfidence:0.6,minPoseDetectionConfidence:0.6,
+          minPosePresenceConfidence:0.6,outputSegmentationMasks:false,
+        });
+      }catch{
+        delegate='CPU';
+        model=await PoseLandmarker.createFromOptions(fileset,{
+          baseOptions:{modelAssetBuffer:buffer,delegate:'CPU'},runningMode:'VIDEO',
+          numPoses:1,minTrackingConfidence:0.6,minPoseDetectionConfidence:0.6,
+          minPosePresenceConfidence:0.6,outputSegmentationMasks:false,
+        });
+      }
+      self.postMessage({type:'ready',delegate});
     }
     if(data.type==='frame'&&model){
       const started=performance.now(),inputWidth=data.bitmap.width,inputHeight=data.bitmap.height;let result;

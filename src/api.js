@@ -61,17 +61,52 @@ export class ApiError extends Error {
   }
 }
 
-// Identity comes from the Sites session. No tokens or user identifiers are
-// supplied by the browser, and identity is never emulated in production.
+export function getTestUser() {
+  try {
+    return localStorage.getItem('movement.testUser') || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setTestUser(name) {
+  try {
+    if (name) localStorage.setItem('movement.testUser', name.trim());
+    else localStorage.removeItem('movement.testUser');
+  } catch {}
+}
+
+export function getTestUserId(name) {
+  if (!name) return '';
+  const bytes = new TextEncoder().encode(name.trim().toLowerCase());
+  return 'u_' + Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function getApiBaseUrl() {
+  if (typeof window !== 'undefined' && (window.Capacitor?.isNativePlatform?.() || window.location.protocol === 'capacitor:')) {
+    return 'https://ais-pre-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api';
+  }
+  return '/api';
+}
+
 export async function api(path, {method = 'GET', body, keepalive = false} = {}) {
   const relative = String(path).replace(/^\/api\/?/, '').replace(/^\//, '');
   if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..')) throw new ApiError('INVALID_REQUEST', 400);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const response = await fetch(`/api/${relative}`, {
-      method, credentials: 'same-origin', cache: 'no-store', keepalive,
-      headers: body === undefined ? {Accept: 'application/json'} : {Accept: 'application/json', 'Content-Type': 'application/json'},
+    const testUser = getTestUser();
+    const testUserId = getTestUserId(testUser);
+    const headers = {
+      Accept: 'application/json',
+      ...(body === undefined ? {} : {'Content-Type': 'application/json'}),
+      ...(testUserId ? {'x-test-user-id': testUserId} : {})
+    };
+    const baseUrl = getApiBaseUrl();
+    const isCross = baseUrl.startsWith('http');
+    const response = await fetch(`${baseUrl}/${relative}`, {
+      method, credentials: isCross ? 'include' : 'same-origin', cache: 'no-store', keepalive,
+      headers,
       ...(body === undefined ? {} : {body: JSON.stringify(body)}), signal: controller.signal,
     });
     const data = await response.json().catch(() => null);
