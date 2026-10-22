@@ -9,6 +9,7 @@ const DAY=86400000;
 function fixture(t){
   const db=createTestDatabase();t.after(()=>db.close());let now=Date.parse('2026-10-20T12:00:00Z');
   const api=async(user,path,body)=>{
+    let maintenance;do{maintenance=await maintainWeeks(db,now);}while(maintenance.pending);
     const r=await handleApi(new Request(`https://test.example/api/${path}`,{method:body===undefined?'GET':'POST',headers:{'oai-authenticated-user-id':user,origin:'https://test.example','content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})}),{DB:db},{now:()=>now});
     const data=await r.json();assert.equal(r.status,200,JSON.stringify(data));return data;
   };
@@ -92,6 +93,7 @@ test('first launch activation persists; old points survive and no bonus is backf
   for(let i=0;i<7;i++){const date=addDays('2026-10-12',i);db.sqlite.prepare('INSERT INTO daily_progress VALUES(?,?,10)').run('alice',date);db.sqlite.prepare('INSERT INTO daily_rewards VALUES(?,?,10,?)').run('alice',date,now-DAY*8);}
   db.sqlite.exec(readFileSync(new URL('../drizzle/0001_weekly_rankings.sql',import.meta.url),'utf8'));
   db.sqlite.exec(readFileSync(new URL('../drizzle/0002_ranking_defaults_duel_cancel.sql',import.meta.url),'utf8'));
+  db.sqlite.exec(readFileSync(new URL('../drizzle/0004_server_optimization.sql',import.meta.url),'utf8'));
   await maintainWeeks(db,now);await maintainWeeks(db,now+DAY*30);
   assert.equal(db.sqlite.prepare('SELECT SUM(points) n FROM daily_rewards').get().n,70);assert.equal(db.sqlite.prepare('SELECT COUNT(*) n FROM weekly_bonuses').get().n,0);
   assert.equal(db.sqlite.prepare('SELECT activation_week FROM weekly_settings').get().activation_week,'2026-10-19');assert.equal(db.sqlite.prepare('SELECT rankings_enabled FROM profiles').get().rankings_enabled,0);
@@ -178,6 +180,7 @@ test('all old profiles become included once after additive migration; new opt-ou
     db.sqlite.prepare('INSERT INTO daily_progress VALUES(?,?,10)').run(u,'2026-10-20');db.sqlite.prepare('INSERT INTO daily_rewards VALUES(?,?,10,?)').run(u,'2026-10-20',now);
   }
   db.sqlite.exec(readFileSync(new URL('../drizzle/0002_ranking_defaults_duel_cancel.sql',import.meta.url),'utf8'));
+  db.sqlite.exec(readFileSync(new URL('../drizzle/0004_server_optimization.sql',import.meta.url),'utf8'));
   const call=async(user,path,body)=>{
     const r=await handleApi(new Request(`https://test.example/api/${path}`,{method:body?'POST':'GET',headers:{'oai-authenticated-user-id':user,origin:'https://test.example','content-type':'application/json'},...(body?{body:JSON.stringify(body)}:{})}),{DB:db},{now:()=>now});assert.equal(r.status,200);return r.json();
   };

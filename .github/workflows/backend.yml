@@ -1,7 +1,7 @@
 name: Backend — checks and deployment
 on:
   push:
-    branches: [codex/backend-hosting-2.5.1]
+    branches: [codex/backend-hosting-2.5.1, codex/server-optimization]
   pull_request:
     branches: [main, codex/build-android-apk]
   workflow_dispatch:
@@ -24,6 +24,105 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npm run backend:validate
+      - name: Install browser test driver
+        run: npm install --prefix "$RUNNER_TEMP/browser-tools" --no-save playwright-core@1.58.2
+      - name: Check native transport and diagnostics in the browser
+        env:
+          NODE_PATH: ${{ runner.temp }}/browser-tools/node_modules
+          CHROMIUM_PATH: /usr/bin/google-chrome
+          TESTSERVERPORT: '4178'
+          TEST_AUTH_MODE: device
+          TEST_ORIGIN: http://127.0.0.1:4178
+        run: |
+          node tests/browser-server.mjs > work/browser-ci.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          for attempt in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:4178/api/health > /dev/null; then break; fi
+            sleep 1
+          done
+          node tests/browser-backend.mjs
+          node tests/browser-diagnostics.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-checks
+          path: |
+            work/diagnostics-*.png
+            work/browser-ci.log
+  android:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/server-optimization'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    outputs:
+      commit_sha: ${{ steps.publish.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            work/gradle/caches
+            work/gradle/wrapper
+            ~/.android/debug.keystore
+          key: movement-staging-android-v1-${{ runner.os }}
+      - run: npm ci
+      - name: Install Android build components
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+      - name: Build independently installable staging APK
+        run: npm run build:apk:staging
+        env:
+          VITE_API_BASE_URL: https://movement-test-api-staging.rojoscarlos93.workers.dev/api
+      - uses: actions/upload-artifact@v4
+        with:
+          name: movement-2.5.3-staging-apk
+          path: work/artifacts/*
+      - name: Publish test APK on the implementation branch
+        id: publish
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public/app-debug.apk public/app-debug.apk.json public/app-debug.apk.sha256
+          if ! git diff --cached --quiet; then
+            git commit -m 'build: publish isolated 2.5.3 staging APK [skip ci]'
+            git push origin HEAD:codex/server-optimization
+          fi
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  staging:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/server-optimization'
+    needs: [check, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.android.outputs.commit_sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Deploy isolated staging Worker and D1 and verify
+        run: npm run backend:deploy
+        env:
+          BACKEND_TARGET: staging
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: staging-deployment
+          path: work/backend/deployment.json
   deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/backend-hosting-2.5.1'
     needs: check

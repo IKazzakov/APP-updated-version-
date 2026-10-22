@@ -1,9 +1,14 @@
+import {runMaintenance} from './maintenance.js';
 import siteWorker,{protect} from './worker.js';
 import {handleApi} from './api.js';
 import {authenticateDevice,registerDevice,revokeDevice,authError} from './device-auth.js';
 import {VERSION} from '../src/config.js';
 
 export default {
+  async scheduled(controller,env,ctx){
+    const task=runMaintenance(env.DB,controller.scheduledTime??Date.now());
+    ctx?.waitUntil(task);return task;
+  },
   async fetch(request,env){
     const url=new URL(request.url),path=url.pathname;
     if(!path.startsWith('/api')&&path!=='/healthz')return siteWorker.fetch(request,env);
@@ -12,7 +17,7 @@ export default {
       if(path==='/api/health'||path==='/healthz'){
         if(!['GET','HEAD'].includes(request.method))return protect(authError('METHOD_NOT_ALLOWED',405));
         await env.DB.prepare('SELECT token_hash FROM device_sessions LIMIT 1').all();
-        return protect(new Response(request.method==='HEAD'?null:JSON.stringify({ok:true,version:VERSION,authentication:'device-token',storage:env.STORAGE_KIND||'d1'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}}));
+        return protect(new Response(request.method==='HEAD'?null:JSON.stringify({ok:true,version:VERSION,authentication:'device-token',apiVersions:[1,2],storage:env.STORAGE_KIND||'d1'}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}}));
       }
       if(request.method==='POST'&&request.headers.get('origin')!==url.origin)return protect(authError('ORIGIN_FORBIDDEN',403));
       if(path==='/api/auth/guest')return protect(request.method==='POST'?await registerDevice(request,env):authError('METHOD_NOT_ALLOWED',405));

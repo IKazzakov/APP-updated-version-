@@ -1,3 +1,4 @@
+import {activity} from './activity-log.js';
 import {VERSION, VISION_VERSION, RULES_VERSION, MODELS} from './config.js';
 
 const ERRORS = new Set(['AUTH_REQUIRED', 'FORBIDDEN', 'NETWORK', 'TIMEOUT', 'LOCAL_STORAGE', 'INVALID_EVENT', 'SERVER_ERROR', 'CAMERA_DENIED', 'CAMERA_UNAVAILABLE', 'CAMERA_ENDED', 'MODEL_LOAD', 'MODEL_RUNTIME', 'ROUND_ABORTED', 'SAVE_FAILED', 'UNKNOWN_ERROR', 'ROUND_START_FAILED', 'START_POSE_LOST']);
@@ -14,13 +15,16 @@ function browserDescription() {
 }
 
 export class Diagnostics {
-  constructor() {this.values = {}; this.errors = [];this.startEvents=[];}
+  constructor() {this.values = {}; this.errors = [];this.startEvents=[];this.lastTransition=null;}
   startEvent(status,requestMs=null){
     if(!['requesting','confirmed','rejected','cancelled'].includes(status))return;
+    activity.record('round.start',{stage:status,ms:requestMs});
     this.startEvents.push({at:new Date().toISOString(),status,requestMs:number(requestMs,60000)});this.startEvents=this.startEvents.slice(-8);
   }
   update(state = {}) {
     // Do not spread engine, API, profile or session objects into a report.
+    const transition={mode:state.mode,camera:!!state.cameraOn,ready:!!state.ready,paused:!!state.paused,phase:state.phase,stage:state.roundStatus};
+    const key=JSON.stringify(transition);if(key!==this.lastTransition){activity.record('training.changed',transition);this.lastTransition=key;}
     this.values = {
       apiConnection: {status:number(state.apiConnection?.status,599),code:enumValue(state.apiConnection?.code,CONNECTION_CODES)},
       mode: enumValue(state.mode, ['practice', 'personal', 'competition']),
@@ -39,8 +43,9 @@ export class Diagnostics {
   error(value) {
     const raw = typeof value === 'string' ? value : value?.code || value?.name;
     const code = ERRORS.has(raw) ? raw : ERROR_NAMES[raw] || 'UNKNOWN_ERROR';
+    activity.record('app.error',{code});
     this.errors.push({at: new Date().toISOString(), code}); this.errors = this.errors.slice(-12);
   }
-  report() {return {app: 'Счётчик упражнений', version: VERSION, rulesVersion: RULES_VERSION, vision: VISION_VERSION, report: 'squat-support-v1', createdAt: new Date().toISOString(), browser: browserDescription(), secureContext: globalThis.isSecureContext === true, ...this.values, startEvents:this.startEvents.map(event=>({...event})), errors: this.errors.map(error => ({...error}))};}
+  report() {return {app: 'Счётчик упражнений', version: VERSION, rulesVersion: RULES_VERSION, vision: VISION_VERSION, report: 'squat-support-v1', createdAt: new Date().toISOString(), browser: browserDescription(), secureContext: globalThis.isSecureContext === true, ...this.values, startEvents:this.startEvents.map(event=>({...event})), errors: this.errors.map(error => ({...error})), activity:activity.snapshot()};}
   reportText() {return JSON.stringify(this.report(), null, 2);}
 }

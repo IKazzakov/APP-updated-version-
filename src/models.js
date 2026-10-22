@@ -1,3 +1,4 @@
+import {activity} from './activity-log.js';
 import {MODELS,VERSION} from './config.js';
 export class Vision {
   constructor({onResult,onStatus,onError}){Object.assign(this,{onResult,onStatus,onError});this.generation=0;this.worker=null;this.busy=false;this.ready=false;this.timer=null;}
@@ -5,17 +6,17 @@ export class Vision {
     if(key!=='full')throw new Error('Для этих правил используется Pose Landmarker Full');
     this.close();const generation=this.generation;this.key=key;
     const worker=new Worker(`/assets/vision.worker.js?v=${VERSION}`);this.worker=worker;
-    this.onStatus('Загрузка модели');
+    activity.record('model.loading');this.onStatus('Загрузка модели');
     return new Promise((resolve,reject)=>{
       let loaded=false;
-      const fail=message=>{if(generation!==this.generation)return;clearTimeout(this.timer);this.busy=false;this.ready=false;worker.terminate();this.worker=null;const e=new Error(message);if(!loaded)reject(e);else this.onError(e);};
+      const fail=message=>{if(generation!==this.generation)return;activity.record('model.error',{code:'MODEL_LOAD'});clearTimeout(this.timer);this.busy=false;this.ready=false;worker.terminate();this.worker=null;const e=new Error(message);if(!loaded)reject(e);else this.onError(e);};
       this.cancel=()=>{if(!loaded)resolve(false);};
       this.timer=setTimeout(()=>fail('Модель не загрузилась за 90 секунд. Проверьте соединение и повторите попытку.'),90000);
       worker.onerror=e=>fail(e.message||'Ошибка модуля распознавания');
       worker.onmessage=({data})=>{
         if(generation!==this.generation)return;
         if(data.type==='status')this.onStatus(data.message);
-        if(data.type==='ready'){loaded=true;clearTimeout(this.timer);this.timer=null;this.ready=true;this.onStatus('Готово');resolve(true);}
+        if(data.type==='ready'){activity.record('model.ready');loaded=true;clearTimeout(this.timer);this.timer=null;this.ready=true;this.onStatus('Готово');resolve(true);}
         if(data.type==='error')fail(data.message);
         if(data.type==='result'){this.busy=false;clearTimeout(this.timer);this.timer=null;this.onResult(data);}
       };

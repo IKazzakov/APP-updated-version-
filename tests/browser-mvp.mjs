@@ -40,7 +40,7 @@ try{
  await alice.p.locator('[data-tab="competitions"]').click();await alice.p.locator('#create-challenge').click();await alice.p.locator('#invite-created').waitFor({state:'visible'});const invite=await alice.p.locator('#invite-url').inputValue();const fragment=new URL(invite).hash;
  await bob.p.goto(origin+'/'+fragment);await bob.p.locator('#accept-challenge').waitFor({state:'visible'});await bob.p.waitForFunction(()=>!document.getElementById('accept-challenge').disabled);await bob.p.locator('#accept-challenge').click();await bob.p.locator('.competition-card').waitFor();
  await alice.p.locator('#refresh-challenges').click();await alice.p.locator('[data-attempt]').waitFor();results.push('Два отдельных тестовых входа: приглашение через интерфейс, принятие другом, имена и оставшиеся попытки');
- await alice.p.route('**/api/rounds/start',async route=>{await pose(alice.c,'missing');await alice.p.waitForTimeout(1800);const response=await route.fetch();await route.fulfill({response});});
+ await alice.p.route(/\/api\/(?:v2\/)?rounds\/start$/,async route=>{await pose(alice.c,'missing');await alice.p.waitForTimeout(1800);const response=await route.fetch();await route.fulfill({response});});
  await alice.p.locator('[data-attempt]').first().click();await alice.p.locator('#start').click();await alice.p.waitForFunction(()=>!document.getElementById('early-stop').hidden,null,{timeout:20000});
  await pose(alice.c,'stand');await alice.p.waitForFunction(()=>document.getElementById('state').textContent==='Идёт подсчёт');await cycle(alice.c);await alice.p.waitForFunction(()=>document.getElementById('count').textContent==='1');
  const active=(await alice.c.request.get(origin+'/api/state').then(r=>r.json())).activeRound;

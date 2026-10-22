@@ -1,3 +1,4 @@
+import {runMaintenance} from './maintenance.js';
 // Runs the existing API and web client together on AI Studio / Cloud Run.
 // Sites continues to use server/worker.js and its managed D1 binding.
 import http from 'node:http';
@@ -56,7 +57,10 @@ export async function createNodeServer({databasePath=process.env.MOVEMENT_DB_PAT
       vite=await createServer({configFile:false,server:{middlewareMode:true,hmr:{server}},appType:'spa'});
     }else await stat(resolve(root,'index.html'));
   }catch(error){db.close();throw error;}
-  return {server,async close(){await new Promise((done,reject)=>server.close(error=>error?reject(error):done()));await vite?.close();db.close();}};
+  let maintaining=false;
+  const maintain=async()=>{if(maintaining)return;maintaining=true;try{await runMaintenance(db,Date.now());}catch(error){console.error('Maintenance failed:',error.name);}finally{maintaining=false;}};
+  await maintain();const timer=setInterval(maintain,60000);timer.unref();
+  return {server,async close(){clearInterval(timer);await new Promise((done,reject)=>server.close(error=>error?reject(error):done()));await vite?.close();db.close();}};
 }
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){

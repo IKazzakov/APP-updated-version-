@@ -16,7 +16,7 @@ try{
  const post=async(path,data={})=>{const response=await context.request.post(origin+path,{data,headers:{Origin:origin}});assert.ok(response.ok(),await response.text());return response.json();};
  const state=()=>context.request.get(origin+'/api/state').then(r=>r.json());
  await post('/__test/reset');await page.goto(origin+'/__test/login?user=alice');await page.waitForFunction(()=>document.getElementById('connection').textContent.includes('подтверждён'));
- let requests=0;page.on('request',r=>{if(new URL(r.url()).pathname==='/api/rounds/start')requests++;});
+ let requests=0;page.on('request',r=>{if(/^\/api\/(?:v2\/)?rounds\/start$/.test(new URL(r.url()).pathname))requests++;});
  await page.locator('[data-tab="training"]').click();await page.locator('#personal-mode').click();await post('/__test/pose',{name:'stand'});await page.waitForTimeout(1000);
  assert.equal(requests,0);assert.equal(await page.locator('#video').evaluate(v=>v.srcObject===null),true);assert.equal(await page.locator('#start').textContent(),'Подготовиться');results.push('Открытие страницы и выбор минутного режима не запускают камеру или минуту');
  await page.locator('#test-sound').click();assert.ok((await page.evaluate(()=>window.testTones)).length===2);assert.ok((await page.evaluate(()=>window.testTones)).every(t=>t.state==='running'));
@@ -28,11 +28,11 @@ try{
  await post('/__test/pose',{name:'stand'});await page.waitForFunction(()=>document.getElementById('countdown').textContent==='5'&&!document.getElementById('countdown').hidden,null,{timeout:8000});
  await page.locator('#cancel-preparation').click();assert.equal(await page.locator('#video').evaluate(v=>v.srcObject===null),true);await page.waitForTimeout(600);assert.equal(requests,0);results.push('Отмена подготовительного отсчёта освобождает камеру, запуск не происходит');
  // A rejected start never shows an active minute or automatically retries it.
- await page.route('**/api/rounds/start',r=>r.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{code:'SERVER_ERROR'}})}));
+ await page.route(/\/api\/(?:v2\/)?rounds\/start$/,r=>r.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{code:'SERVER_ERROR'}})}));
  await page.locator('#start').click();await page.waitForFunction(()=>document.getElementById('app-error').textContent.includes('Не удалось сохранить'),null,{timeout:20000});assert.equal(requests,1);assert.equal(await page.locator('#early-stop').isVisible(),false);assert.equal((await state()).activeRound,null);const tonesBeforeRetry=await page.evaluate(()=>window.testTones);assert.equal(tonesBeforeRetry.filter(t=>t.frequency===1320).length,1); // only Test signal
  await page.waitForTimeout(600);assert.equal(requests,1);results.push('Ошибка сервера не имитирует активный раунд и не вызывает повторный автоматический запрос');
- await page.unroute('**/api/rounds/start');
- await page.route('**/api/rounds/start',async route=>{await post('/__test/pose',{name:'missing'});await page.waitForTimeout(1800);const response=await route.fetch();await route.fulfill({response});});
+ await page.unroute(/\/api\/(?:v2\/)?rounds\/start$/);
+ await page.route(/\/api\/(?:v2\/)?rounds\/start$/,async route=>{await post('/__test/pose',{name:'missing'});await page.waitForTimeout(1800);const response=await route.fetch();await route.fulfill({response});});
  await page.locator('#start').click();await page.waitForFunction(()=>!document.getElementById('early-stop').hidden,null,{timeout:20000});assert.equal(requests,2);assert.equal(await page.locator('#countdown').textContent(),'Старт!');const active=(await state()).activeRound;assert.ok(active);assert.equal(active.endsAt-active.startsAt,60000);assert.equal(await page.locator('#count').textContent(),'0');
  results.push('Подтверждение через 1,8 секунды при пропавшем теле запускает минуту, без скрытой отмены');
  await post('/__test/pose',{name:'stand'});await page.waitForFunction(()=>document.getElementById('state').textContent==='Идёт подсчёт');

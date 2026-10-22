@@ -1,3 +1,4 @@
+import {runMaintenance} from './maintenance.js';
 import {handleApi} from './api.js';
 
 export function protect(response){
@@ -11,6 +12,10 @@ export function protect(response){
 }
 
 export default {
+  async scheduled(controller,env,ctx){
+    const task=runMaintenance(env.DB,controller.scheduledTime??Date.now());
+    ctx?.waitUntil(task);return task;
+  },
   async fetch(request,env){
     const url=new URL(request.url);
     if(url.pathname.startsWith('/api/'))return protect(await handleApi(request,env));

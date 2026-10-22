@@ -1,4 +1,4 @@
-const CACHE_NAME = 'movement-cache-v2.4.0';
+const CACHE_NAME = 'movement-cache-v2.5.3';
 
 self.addEventListener('install', event => {
   self.skipWaiting();
@@ -22,20 +22,10 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Network first with fallback to cache for HTML navigation, stale-while-revalidate for static assets
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      const fetchPromise = fetch(event.request)
-        .then(response => {
-          if (response && response.status === 200 && response.type === 'basic') {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => cached);
-
-      return cached || fetchPromise;
-    })
-  );
+  if(url.pathname.endsWith('.apk')||url.pathname.startsWith('/app-debug.apk'))return;
+  // Fetch current HTML and assets together; cached data is an offline fallback.
+  event.respondWith(fetch(event.request).then(response=>{
+    if(response.ok&&response.type==='basic')event.waitUntil(caches.open(CACHE_NAME).then(cache=>cache.put(event.request,response.clone())).catch(()=>{}));
+    return response;
+  }).catch(async()=>await caches.match(event.request)||Response.error()));
 });

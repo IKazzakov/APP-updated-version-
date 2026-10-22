@@ -1,0 +1,228 @@
+{
+  "engine": "Node SQLite, in-memory, one process; no network or phone timing",
+  "samples": 5,
+  "note": "p95 is the maximum of five samples, not a production capacity estimate. Counts cover API-issued SQL, not statements inside triggers or scanned rows.",
+  "api": "2.5.2",
+  "results": [
+    {
+      "users": 100,
+      "weeks": 12,
+      "scenario": "dashboard",
+      "samples": 5,
+      "p50Ms": 38.4,
+      "p95Ms": 42.22,
+      "responseBytes": 12279,
+      "apiSqlStatements": 23,
+      "returnedRows": 227
+    },
+    {
+      "users": 100,
+      "weeks": 12,
+      "scenario": "save-1",
+      "samples": 5,
+      "p50Ms": 38.51,
+      "p95Ms": 41.66,
+      "responseBytes": 12366,
+      "apiSqlStatements": 25,
+      "returnedRows": 230
+    },
+    {
+      "users": 100,
+      "weeks": 12,
+      "scenario": "save-10",
+      "samples": 5,
+      "p50Ms": 33.88,
+      "p95Ms": 35.4,
+      "responseBytes": 12369,
+      "apiSqlStatements": 34,
+      "returnedRows": 240
+    },
+    {
+      "users": 100,
+      "weeks": 12,
+      "scenario": "save-50",
+      "samples": 5,
+      "p50Ms": 41.22,
+      "p95Ms": 49.99,
+      "responseBytes": 12371,
+      "apiSqlStatements": 74,
+      "returnedRows": 280
+    },
+    {
+      "users": 100,
+      "weeks": 12,
+      "scenario": "leaderboard",
+      "samples": 5,
+      "p50Ms": 29.01,
+      "p95Ms": 33.08,
+      "responseBytes": 306,
+      "apiSqlStatements": 10,
+      "returnedRows": 4
+    },
+    {
+      "users": 100,
+      "weeks": 52,
+      "scenario": "dashboard",
+      "samples": 5,
+      "p50Ms": 134.63,
+      "p95Ms": 138.27,
+      "responseBytes": 49079,
+      "apiSqlStatements": 23,
+      "returnedRows": 627
+    },
+    {
+      "users": 100,
+      "weeks": 52,
+      "scenario": "save-1",
+      "samples": 5,
+      "p50Ms": 136.88,
+      "p95Ms": 167.7,
+      "responseBytes": 49166,
+      "apiSqlStatements": 25,
+      "returnedRows": 630
+    },
+    {
+      "users": 100,
+      "weeks": 52,
+      "scenario": "save-10",
+      "samples": 5,
+      "p50Ms": 136.14,
+      "p95Ms": 142.25,
+      "responseBytes": 49169,
+      "apiSqlStatements": 34,
+      "returnedRows": 640
+    },
+    {
+      "users": 100,
+      "weeks": 52,
+      "scenario": "save-50",
+      "samples": 5,
+      "p50Ms": 144.87,
+      "p95Ms": 154.35,
+      "responseBytes": 49171,
+      "apiSqlStatements": 74,
+      "returnedRows": 680
+    },
+    {
+      "users": 100,
+      "weeks": 52,
+      "scenario": "leaderboard",
+      "samples": 5,
+      "p50Ms": 171.56,
+      "p95Ms": 209.16,
+      "responseBytes": 306,
+      "apiSqlStatements": 10,
+      "returnedRows": 4
+    },
+    {
+      "users": 1000,
+      "weeks": 12,
+      "scenario": "dashboard",
+      "samples": 5,
+      "p50Ms": 1449.49,
+      "p95Ms": 1489.03,
+      "responseBytes": 12279,
+      "apiSqlStatements": 23,
+      "returnedRows": 1127
+    },
+    {
+      "users": 1000,
+      "weeks": 12,
+      "scenario": "save-1",
+      "samples": 5,
+      "p50Ms": 1420.98,
+      "p95Ms": 1442.31,
+      "responseBytes": 12366,
+      "apiSqlStatements": 25,
+      "returnedRows": 1130
+    },
+    {
+      "users": 1000,
+      "weeks": 12,
+      "scenario": "save-10",
+      "samples": 5,
+      "p50Ms": 1362.83,
+      "p95Ms": 1446.96,
+      "responseBytes": 12369,
+      "apiSqlStatements": 34,
+      "returnedRows": 1140
+    },
+    {
+      "users": 1000,
+      "weeks": 12,
+      "scenario": "save-50",
+      "samples": 5,
+      "p50Ms": 1430.86,
+      "p95Ms": 1829.73,
+      "responseBytes": 12371,
+      "apiSqlStatements": 74,
+      "returnedRows": 1180
+    },
+    {
+      "users": 1000,
+      "weeks": 12,
+      "scenario": "leaderboard",
+      "samples": 5,
+      "p50Ms": 1547.91,
+      "p95Ms": 1710.28,
+      "responseBytes": 306,
+      "apiSqlStatements": 10,
+      "returnedRows": 4
+    },
+    {
+      "users": 1000,
+      "weeks": 52,
+      "scenario": "dashboard",
+      "samples": 5,
+      "p50Ms": 8775.1,
+      "p95Ms": 10562.15,
+      "responseBytes": 49079,
+      "apiSqlStatements": 23,
+      "returnedRows": 1527
+    },
+    {
+      "users": 1000,
+      "weeks": 52,
+      "scenario": "save-1",
+      "samples": 5,
+      "p50Ms": 6407.8,
+      "p95Ms": 7035.2,
+      "responseBytes": 49166,
+      "apiSqlStatements": 25,
+      "returnedRows": 1530
+    },
+    {
+      "users": 1000,
+      "weeks": 52,
+      "scenario": "save-10",
+      "samples": 5,
+      "p50Ms": 8105.98,
+      "p95Ms": 18369.51,
+      "responseBytes": 49169,
+      "apiSqlStatements": 34,
+      "returnedRows": 1540
+    },
+    {
+      "users": 1000,
+      "weeks": 52,
+      "scenario": "save-50",
+      "samples": 5,
+      "p50Ms": 6221.68,
+      "p95Ms": 7385.88,
+      "responseBytes": 49171,
+      "apiSqlStatements": 74,
+      "returnedRows": 1580
+    },
+    {
+      "users": 1000,
+      "weeks": 52,
+      "scenario": "leaderboard",
+      "samples": 5,
+      "p50Ms": 6176.77,
+      "p95Ms": 11039.9,
+      "responseBytes": 306,
+      "apiSqlStatements": 10,
+      "returnedRows": 4
+    }
+  ]
+}

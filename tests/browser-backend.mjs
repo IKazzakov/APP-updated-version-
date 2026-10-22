@@ -4,7 +4,7 @@ import {createRequire} from 'node:module';
 import {POSE_WORKER} from './browser-pose-fixture.mjs';
 const require=createRequire(import.meta.url),{chromium}=require('playwright-core');
 const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:4178';
-const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream']});
 const errors=[],contexts=[],results=[];
 async function actor(native=false){
  const c=await browser.newContext({viewport:{width:393,height:852},isMobile:true,permissions:['camera'],serviceWorkers:'block'});contexts.push(c);c.setDefaultTimeout(20000);

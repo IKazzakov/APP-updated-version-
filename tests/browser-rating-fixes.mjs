@@ -5,7 +5,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 const require=createRequire(import.meta.url);
 let chromium;try{({chromium}=require('playwright-core'));}catch{({chromium}=require('/opt/codex/runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright-core'));}
 const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:4175';
-const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox']});
 const results=[],errors=[],contexts=[];
 async function post(c,path,data){const r=await c.request.post(origin+path,{data,headers:{Origin:origin}});const b=await r.json();assert.equal(r.ok(),true,JSON.stringify(b));return b;}
 async function state(c){return (await c.request.get(origin+'/api/state')).json();}
@@ -15,7 +15,7 @@ try{
   const a=await actor('alice'),b=await actor('bob');
   assert.equal((await state(a.c)).profile.rankingsEnabled,true);await a.p.locator('#profile-toggle').click();assert.equal(await a.p.locator('#rankings-excluded').isChecked(),false);assert.ok((await a.p.locator('#profile-panel').textContent()).includes('Не участвовать в общих рейтингах'));await a.p.locator('#profile-toggle').click();
   let requests=0,fail=false;
-  await a.p.route('**/api/leaderboards*',async route=>{requests++;await a.p.waitForTimeout(350);if(fail)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{code:'SERVER_ERROR'}})});return route.continue();});
+  await a.p.route(/\/api\/(?:v2\/)?leaderboards(?:\?|$)/,async route=>{requests++;await a.p.waitForTimeout(350);if(fail)return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{code:'SERVER_ERROR'}})});return route.continue();});
   await a.p.locator('[data-tab="competitions"]').click();await a.p.locator('#competition-tab-points').click();await a.p.waitForFunction(()=>document.querySelectorAll('#league-table tbody tr').length===2&&!document.getElementById('refresh-league').disabled);
   await a.p.evaluate(()=>{window.emptyTableRenders=0;window.loadingRenders=0;new MutationObserver(()=>{if(!document.querySelector('#league-table tbody'))window.emptyTableRenders++;if(document.getElementById('league-status').textContent.includes('Загружаем'))window.loadingRenders++;}).observe(document.getElementById('league-panel'),{childList:true,subtree:true});});
   const first=requests;

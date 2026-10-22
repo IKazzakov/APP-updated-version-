@@ -4,6 +4,7 @@ import http from 'node:http';
 import {readFile,stat} from 'node:fs/promises';
 import {dirname,resolve,relative,extname} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {runMaintenance} from '../server/maintenance.js';
 import {handleApi} from '../server/api.js';
 import worker from '../server/worker.js';
 import cloudWorker from '../server/cloudflare.js';
@@ -68,7 +69,7 @@ async function dispatch(request) {
   if(url.pathname==='/__test/time'&&request.method==='POST') {
     const body=await request.json();
     if(!Number.isSafeInteger(body.advanceMs)||body.advanceMs<0||body.advanceMs>366*86400000)return json({error:'Invalid advanceMs'},400);
-    clockOffset+=body.advanceMs;return json({now:Date.now()+clockOffset,offsetMs:clockOffset});
+    clockOffset+=body.advanceMs;let job;do{job=await runMaintenance(db,Date.now()+clockOffset);}while(job.pending);return json({now:Date.now()+clockOffset,offsetMs:clockOffset});
   }
   if(url.pathname==='/__test/reset'&&request.method==='POST') {
     db.close();db=createTestDatabase();clockOffset=0;pose='stand';return json({ok:true,testOnly:true});
@@ -88,7 +89,7 @@ async function dispatch(request) {
   }
   if(url.pathname.startsWith('/__test/source/')) {
     const name=url.pathname.slice('/__test/source/'.length);
-    if(!['outbox.js','api.js','config.js','progress.js'].includes(name))return json({error:'Source not allowed'},404);
+    if(!['outbox.js','api.js','config.js','progress.js','activity-log.js'].includes(name))return json({error:'Source not allowed'},404);
     return new Response(name==='api.js'?testApiSource:await readFile(resolve(root,'src',name)),{headers:{'content-type':'text/javascript; charset=utf-8','cache-control':'no-store'}});
   }
   if(url.pathname.startsWith('/__test/'))return json({error:'Unknown test endpoint'},404);

@@ -1,5 +1,6 @@
 apply plugin: 'com.android.application'
 
+def appConfig = new groovy.json.JsonSlurper().parse(rootProject.file('../capacitor.config.json'))
 def appVersion = new groovy.json.JsonSlurper().parse(rootProject.file('../package.json')).version
 def versionParts = appVersion.tokenize('.').collect { it.toInteger() }
 
@@ -7,7 +8,7 @@ android {
     namespace = "com.movement.squat"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.movement.squat"
+        applicationId appConfig.appId
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]

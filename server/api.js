@@ -1,10 +1,14 @@
 import {RULES_VERSION, ROUND_MS, DELIVERY_GRACE_MS, DAILY_GOAL, DAILY_POINTS, COMPETITION_MS, ATTEMPT_LIMIT, EVENT_RETENTION_MS} from './rules.js';
-import {maintainWeeks,weeklyState,leaderboard,validWeek,acknowledgeWeek} from './weeks.js';
+import {weeklyState,leaderboard,validWeek,acknowledgeWeek,summaryView} from './weeks.js';
 
+import {ensureCurrentWeek,reconcileUser} from './maintenance.js';
+import {readDashboard,readReceipt,readPage} from './reads.js';
+
+const stateFor=(db,userId,now,compact)=>compact?readDashboard(db,userId,now):readState(db,userId,now);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN = /^[0-9a-f]{64}$/i;
 const json = (value, status = 200) => new Response(JSON.stringify(value), {status, headers: {'content-type': 'application/json; charset=utf-8', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff'}});
-class ApiError extends Error {constructor(status, code, message) {super(message); this.status = status; this.code = code;}}
+export class ApiError extends Error {constructor(status, code, message) {super(message); this.status = status; this.code = code;}}
 const reject = (status, code, message) => {throw new ApiError(status, code, message);};
 const row = (db, sql, ...args) => db.prepare(sql).bind(...args).first();
 const rows = async (db, sql, ...args) => (await db.prepare(sql).bind(...args).all()).results;
@@ -23,8 +27,10 @@ function token(value) {
 async function hash(value) {
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))), byte => byte.toString(16).padStart(2, '0')).join('');
 }
+const dateFormatters=new Map();
 export function localDate(timestamp, timeZone) {
-  const parts = new Intl.DateTimeFormat('en-CA', {timeZone, year:'numeric', month:'2-digit', day:'2-digit'}).formatToParts(new Date(timestamp));
+  if(!dateFormatters.has(timeZone)){if(dateFormatters.size>=32)dateFormatters.delete(dateFormatters.keys().next().value);dateFormatters.set(timeZone,new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}));}
+  const parts=dateFormatters.get(timeZone).formatToParts(new Date(timestamp));
   const pick = type => parts.find(part => part.type === type).value;
   return `${pick('year')}-${pick('month')}-${pick('day')}`;
 }
@@ -32,20 +38,21 @@ function subtractDays(date, count) {
   const value = new Date(`${date}T12:00:00Z`); value.setUTCDate(value.getUTCDate() - count);
   return value.toISOString().slice(0, 10);
 }
-function roundView(value) {
+export function roundView(value) {
   return {id:value.id, kind:value.kind, status:value.status, competitionId:value.competition_id, rulesVersion:value.rules_version, startsAt:value.starts_at, endsAt:value.ends_at, finishedAt:value.finished_at, count:value.count};
 }
-const profileView = value => value ? {id:value.user_id, displayName:value.display_name, timeZone:value.time_zone,rankingsEnabled:!value.rankings_excluded} : null;
+export const profileView = value => value ? {id:value.user_id, displayName:value.display_name, timeZone:value.time_zone,rankingsEnabled:!value.rankings_excluded} : null;
 
 // Stale attempts become interrupted, never a fabricated completed result.
-async function expire(db, now) {
-  await db.prepare("UPDATE rounds SET status='aborted', finished_at=ends_at WHERE status='active' AND ends_at + ? < ?").bind(DELIVERY_GRACE_MS, now).run();
+async function expire(db, now, userId) {
+  await db.prepare("UPDATE rounds SET status='aborted', finished_at=ends_at WHERE user_id=? AND status='active' AND ends_at < ?").bind(userId, now-DELIVERY_GRACE_MS).run();
 }
 
-async function competitionView(db, value, userId, now, cached=null) {
+export async function competitionView(db, value, userId, now, cached=null) {
   const members = [value.creator_id, value.opponent_id].filter(Boolean);
   const names = cached?.names ?? await rows(db, `SELECT user_id, display_name FROM profiles WHERE user_id IN (${members.map(() => '?').join(',')})`, ...members);
-  const attempts = cached ? cached.attempts.filter(attempt => attempt.competition_id === value.id) : await rows(db, 'SELECT user_id, status, count, rules_version FROM rounds WHERE competition_id=?', value.id);
+  const attempts = cached ? cached.attempts.filter(attempt => attempt.competition_id === value.id) : await rows(db, 'SELECT user_id, status, count, rules_version,ends_at FROM rounds WHERE competition_id=?', value.id);
+  for(const attempt of attempts)if(attempt.status==='active'&&attempt.ends_at+DELIVERY_GRACE_MS<now)attempt.status='aborted';
   const participants = members.map((id, index) => {
     const mine = attempts.filter(attempt => attempt.user_id === id);
     const completed = mine.filter(attempt => attempt.status === 'completed' && attempt.rules_version === value.rules_version);
@@ -71,7 +78,8 @@ async function competitionView(db, value, userId, now, cached=null) {
 }
 
 export async function readState(db, userId, now) {
-  await maintainWeeks(db,now);
+  await reconcileUser(db,userId,now);
+
   const profile = await row(db, 'SELECT * FROM profiles WHERE user_id=?', userId);
   if (!profile) return {profile:null,today:null,days:[],points:0,last7:0,rounds:[],activeRound:null,competitions:[],serverNow:now,rulesVersion:RULES_VERSION};
   const date = localDate(now, profile.time_zone);
@@ -84,7 +92,7 @@ export async function readState(db, userId, now) {
     db.prepare("SELECT * FROM rounds WHERE user_id=? AND status='active'").bind(userId),
     db.prepare('SELECT * FROM competitions WHERE creator_id=? OR opponent_id=? ORDER BY created_at DESC, id DESC').bind(userId,userId),
     db.prepare('SELECT user_id,display_name FROM profiles WHERE user_id IN (SELECT creator_id FROM competitions WHERE creator_id=? OR opponent_id=? UNION SELECT opponent_id FROM competitions WHERE creator_id=? OR opponent_id=?)').bind(userId,userId,userId,userId),
-    db.prepare('SELECT competition_id,user_id,status,count,rules_version FROM rounds WHERE competition_id IN (SELECT id FROM competitions WHERE creator_id=? OR opponent_id=?)').bind(userId,userId),
+    db.prepare('SELECT competition_id,user_id,status,count,rules_version,ends_at FROM rounds WHERE competition_id IN (SELECT id FROM competitions WHERE creator_id=? OR opponent_id=?)').bind(userId,userId),
   ]);
   const [progress, rewards, history, activeRows, competitions, names, attempts] = snapshot.map(result=>result.results);
   const earned=rewards[0], active=activeRows[0] ?? null;
@@ -109,7 +117,7 @@ async function requireRound(db, userId, id) {
   return value;
 }
 
-async function profileRoute(db, userId, input, now) {
+async function profileRoute(db, userId, input, now,compact=false) {
   keys(input, ['displayName','timeZone','rankingsEnabled']);
   if(input.rankingsEnabled!==undefined&&typeof input.rankingsEnabled!=='boolean')reject(400,'INVALID_INPUT','Проверьте настройку участия.');
   const displayName = typeof input.displayName === 'string' ? input.displayName.trim() : '';
@@ -118,28 +126,32 @@ async function profileRoute(db, userId, input, now) {
   try {new Intl.DateTimeFormat('en', {timeZone:input.timeZone}).format();} catch {reject(400,'INVALID_TIME_ZONE','Не удалось определить часовой пояс.');}
   // A second device may submit its own timezone; the original profile timezone
   // intentionally remains authoritative for calendar-day boundaries.
-  // Close elapsed periods before changing consent. Enabling now cannot enter a
-  // past sports week; disabling later never reallocates historical prizes.
-  await maintainWeeks(db,now);
+  // Keep a consent timeline so delayed cron closure observes the delivery
+  // cutoff even when this edit happens before that cron invocation.
+
   // A separate exclusion flag makes both existing and new profiles participate
   // by default, without rebuilding profiles or changing historical awards.
   // Once explicitly excluded in this version, ordinary profile edits preserve it.
-  await db.prepare(`INSERT INTO profiles(user_id,display_name,time_zone,created_at,rankings_excluded) VALUES(?,?,?,?,?)
-    ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,rankings_excluded=CASE WHEN ? IS NULL THEN profiles.rankings_excluded ELSE excluded.rankings_excluded END`).bind(userId,displayName,input.timeZone,now,input.rankingsEnabled===false?1:0,input.rankingsEnabled===undefined?null:1).run();
-  return {profile:profileView(await requireProfile(db,userId)),state:await readState(db,userId,now)};
+  await db.batch([db.prepare(`INSERT INTO profiles(user_id,display_name,time_zone,created_at,rankings_excluded) VALUES(?,?,?,?,?)
+    ON CONFLICT(user_id) DO UPDATE SET display_name=excluded.display_name,rankings_excluded=CASE WHEN ? IS NULL THEN profiles.rankings_excluded ELSE excluded.rankings_excluded END`).bind(userId,displayName,input.timeZone,now,input.rankingsEnabled===false?1:0,input.rankingsEnabled===undefined?null:1),db.prepare(`INSERT INTO ranking_consent(user_id,changed_at,excluded) SELECT user_id,?,rankings_excluded FROM profiles WHERE user_id=? ON CONFLICT(user_id,changed_at) DO UPDATE SET excluded=excluded.excluded`).bind(now,userId)]);
+  return {profile:profileView(await requireProfile(db,userId)),state:await stateFor(db,userId,now,compact)};
 }
 
-async function repetitionsRoute(db, userId, input, now) {
+async function repetitionsRoute(db, userId, input, now,compact=false) {
   keys(input,['events']);
   if (!Array.isArray(input.events) || input.events.length < 1 || input.events.length > 100) reject(400,'INVALID_EVENTS','Отправляйте от 1 до 100 повторений за раз.');
-  const profile = await requireProfile(db,userId), statements = [];
+  const profile = await requireProfile(db,userId), inserts = [];
+  const ids=[...new Set(input.events.map(event=>event?.roundId).filter(id=>id!==null&&id!==undefined))];
+  for(const id of ids)uuid(id);
+  const roundRows=ids.length?await rows(db,'SELECT * FROM rounds WHERE user_id=? AND id IN(SELECT value FROM json_each(?))',userId,JSON.stringify(ids)):[];
+  const rounds=new Map(roundRows.map(r=>[r.id,r]));
   for (const event of input.events) {
     keys(event,['id','occurredAt','roundId','elapsedMs']); uuid(event.id);
     const occurredAt = typeof event.occurredAt === 'number' ? event.occurredAt : typeof event.occurredAt === 'string' ? Date.parse(event.occurredAt) : NaN;
     if (!Number.isSafeInteger(occurredAt) || occurredAt > now+5_000 || occurredAt < now-EVENT_RETENTION_MS) reject(400,'INVALID_EVENT_TIME','Время повторения недоступно для сохранения. Обновите данные и повторите.');
     let roundId = null, elapsed = null, eligible = 0;
     if (event.roundId !== undefined && event.roundId !== null) {
-      const value = await requireRound(db,userId,event.roundId);
+      const value=rounds.get(event.roundId);if(!value)reject(404,'ROUND_NOT_FOUND','Попытка не найдена.');
       roundId = value.id; elapsed = event.elapsedMs;
       if (!Number.isSafeInteger(elapsed) || elapsed < 0 || elapsed >= ROUND_MS) reject(400,'INVALID_ROUND_TIME','Повторение находится за пределами минутного раунда.');
       const actual = value.starts_at+elapsed;
@@ -147,18 +159,20 @@ async function repetitionsRoute(db, userId, input, now) {
       if (value.status === 'aborted' && actual > value.finished_at) reject(400,'ROUND_INTERRUPTED','Повторение произошло после остановки раунда.');
       eligible = value.status === 'active' && now <= value.ends_at+DELIVERY_GRACE_MS && value.rules_version === RULES_VERSION ? 1 : 0;
     } else if (event.elapsedMs !== undefined && event.elapsedMs !== null) reject(400,'INVALID_ROUND_TIME','Для минутного повторения нужна попытка.');
-    statements.push(db.prepare('INSERT INTO repetition_events(user_id,id,occurred_at,local_date,round_id,elapsed_ms,round_eligible,received_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(user_id,id) DO NOTHING RETURNING id').bind(userId,event.id,occurredAt,localDate(occurredAt,profile.time_zone),roundId,elapsed,eligible,now));
+    inserts.push({id:event.id,occurredAt,localDate:localDate(occurredAt,profile.time_zone),roundId,elapsed,eligible});
   }
   // D1 batch is a transaction: event uniqueness, progress, reward and round
   // count changes performed by its trigger commit together or roll back.
-  const saved = await db.batch(statements);
+  const saved = await db.batch([db.prepare(`INSERT INTO repetition_events(user_id,id,occurred_at,local_date,round_id,elapsed_ms,round_eligible,received_at)
+    SELECT ?,json_extract(value,'$.id'),json_extract(value,'$.occurredAt'),json_extract(value,'$.localDate'),json_extract(value,'$.roundId'),json_extract(value,'$.elapsed'),json_extract(value,'$.eligible'),?
+    FROM json_each(?) WHERE 1 ON CONFLICT(user_id,id) DO NOTHING RETURNING id`).bind(userId,now,JSON.stringify(inserts))]);
   const accepted = saved.reduce((sum,result) => sum+(result.results?.length ?? 0),0);
-  return {accepted,duplicate:input.events.length-accepted,state:await readState(db,userId,now)};
+  return {accepted,duplicate:input.events.length-accepted,state:await (compact?readReceipt(db,userId,now):readState(db,userId,now))};
 }
 
 async function startRoute(db,userId,input,now,clock=()=>now) {
   keys(input,['requestId','kind','competitionId']); uuid(input.requestId); await requireProfile(db,userId);
-  await maintainWeeks(db,now);
+
   if (!['personal','competition'].includes(input.kind) || input.kind === 'personal' && input.competitionId != null) reject(400,'INVALID_MODE','Выберите режим минутного раунда.');
   const existing = await row(db,'SELECT * FROM rounds WHERE user_id=? AND start_request_id=?',userId,input.requestId);
   if (existing) {
@@ -189,7 +203,7 @@ async function startRoute(db,userId,input,now,clock=()=>now) {
   reject(409,'START_CONFLICT','Не удалось начать раунд. Обновите данные и повторите.');
 }
 
-async function endRoute(db,userId,id,action,input,now) {
+async function endRoute(db,userId,id,action,input,now,compact=false) {
   keys(input,['requestId']); if (input.requestId !== undefined) uuid(input.requestId);
   const value=await requireRound(db,userId,id);
   if (value.status === 'active') {
@@ -201,12 +215,12 @@ async function endRoute(db,userId,id,action,input,now) {
   }
   const saved=await requireRound(db,userId,id);
   if (action === 'finish' && saved.status === 'aborted') reject(409,'ROUND_INTERRUPTED','Попытка прервана и не участвует в рекордах.');
-  return {round:roundView(saved),state:await readState(db,userId,now)};
+  return {round:roundView(saved),state:await stateFor(db,userId,now,compact)};
 }
 
 async function createCompetition(db,userId,input,now) {
   keys(input,['requestId','token']); uuid(input.requestId); const invitationToken=token(input.token); await requireProfile(db,userId);
-  await maintainWeeks(db,now);
+
   const digest=await hash(invitationToken);
   await db.prepare('INSERT INTO competitions(id,creator_id,token_hash,create_request_id,rules_version,created_at) VALUES(?,?,?,?,?,?) ON CONFLICT(creator_id,create_request_id) DO NOTHING').bind(crypto.randomUUID(),userId,digest,input.requestId,RULES_VERSION,now).run();
   const value=await row(db,'SELECT * FROM competitions WHERE creator_id=? AND create_request_id=?',userId,input.requestId);
@@ -214,9 +228,9 @@ async function createCompetition(db,userId,input,now) {
   return {competition:await competitionView(db,value,userId,now),invitationToken};
 }
 
-async function invitationRoute(db,userId,input,action,now) {
+async function invitationRoute(db,userId,input,action,now,compact=false) {
   keys(input,['token']); const digest=await hash(token(input.token));
-  await maintainWeeks(db,now);
+
   const value=await row(db,'SELECT * FROM competitions WHERE token_hash=?',digest);
   if (!value) reject(404,'INVITATION_NOT_FOUND','Приглашение не найдено. Попросите друга отправить новую ссылку.');
   if (action === 'preview') {
@@ -232,10 +246,10 @@ async function invitationRoute(db,userId,input,action,now) {
   const saved=await row(db,'SELECT * FROM competitions WHERE id=?',value.id);
   if(saved.cancelled_at!==null)reject(409,'INVITATION_CANCELLED','Автор отменил приглашение. Попросите новую ссылку.');
   if (saved.opponent_id !== userId) reject(409,'INVITATION_TAKEN','Это приглашение уже принято другим участником.');
-  return {competition:await competitionView(db,saved,userId,now),state:await readState(db,userId,now)};
+  return {competition:await competitionView(db,saved,userId,now),state:await stateFor(db,userId,now,compact)};
 }
 
-async function cancelCompetition(db,userId,id,input,now) {
+async function cancelCompetition(db,userId,id,input,now,compact=false) {
   keys(input,[]);uuid(id);await requireProfile(db,userId);
   const value=await row(db,'SELECT * FROM competitions WHERE id=? AND creator_id=?',id,userId);
   if(!value)reject(404,'COMPETITION_NOT_FOUND','Соревнование не найдено.');
@@ -244,7 +258,7 @@ async function cancelCompetition(db,userId,id,input,now) {
   await db.prepare('UPDATE competitions SET cancelled_at=? WHERE id=? AND creator_id=? AND opponent_id IS NULL AND cancelled_at IS NULL').bind(now,id,userId).run();
   const saved=await row(db,'SELECT * FROM competitions WHERE id=?',id);
   if(saved.cancelled_at===null)reject(409,'INVITATION_ACCEPTED','Друг уже принял вызов. Принятую дуэль отменить нельзя.');
-  return {competition:await competitionView(db,saved,userId,now),state:await readState(db,userId,now)};
+  return {competition:await competitionView(db,saved,userId,now),state:await stateFor(db,userId,now,compact)};
 }
 
 export async function handleApi(request, env, options={}) {
@@ -258,7 +272,13 @@ export async function handleApi(request, env, options={}) {
     const clock=typeof options.now === 'function' ? options.now : Date.now;
     const now=clock();
     if (!Number.isSafeInteger(now)) throw new Error('Invalid server clock');
-    await expire(env.DB,now);
+    await ensureCurrentWeek(env.DB,now);
+    await expire(env.DB,now,userId);
+    const compact=url.pathname.startsWith('/api/v2/');
+    if(compact)url.pathname=url.pathname.replace('/api/v2/','/api/');
+    if(compact&&request.method==='GET'&&url.pathname==='/api/dashboard')return json(await readDashboard(env.DB,userId,now));
+    const page=compact&&request.method==='GET'&&url.pathname.match(/^\/api\/(?:history\/(rounds|progress|weeks)|(competitions))$/);
+    if(page)return json(await readPage(env.DB,userId,page[1]||page[2],url.searchParams,now));
     if (request.method === 'GET' && url.pathname === '/api/state') return json(await readState(env.DB,userId,now));
     if (request.method === 'GET' && url.pathname === '/api/leaderboards') {
       const type=url.searchParams.get('type')??'result',period=url.searchParams.get('period')??'week',week=url.searchParams.get('week')??undefined;
@@ -273,30 +293,35 @@ export async function handleApi(request, env, options={}) {
     const body=await request.text();
     if (body.length > 65_536) reject(413,'TOO_LARGE','Слишком много данных. Повторите отправку небольшими частями.');
     let input; try {input=JSON.parse(body);} catch {reject(400,'INVALID_JSON','Не удалось прочитать данные запроса.');}
-    if (url.pathname === '/api/profile') return json(await profileRoute(env.DB,userId,input,now));
+    if (url.pathname === '/api/profile') return json(await profileRoute(env.DB,userId,input,now,compact));
     if(url.pathname === '/api/weeks/seen') {
       keys(input,['week','total']);
       if(!validWeek(input.week)||!Number.isSafeInteger(input.total)||input.total<0)reject(400,'INVALID_INPUT','Не удалось отметить итоги.');
-      await requireProfile(env.DB,userId);await maintainWeeks(env.DB,now);
+      await requireProfile(env.DB,userId);
       await acknowledgeWeek(env.DB,userId,input.week,input.total,now);
-      return json({state:await readState(env.DB,userId,now)});
+      const state=await stateFor(env.DB,userId,now,compact);
+      if(compact&&state.weekly&&!state.weekly.summaries.some(s=>s.week===input.week)){
+        const summary=await row(env.DB,'SELECT s.*,w.ends_at,w.rules_version FROM weekly_summaries s JOIN weekly_periods w ON w.week=s.week WHERE s.user_id=? AND s.week=?',userId,input.week);
+        if(summary)state.weekly.summaries.push(summaryView(summary,now));
+      }
+      return json({state});
     }
-    if (url.pathname === '/api/repetitions') return json(await repetitionsRoute(env.DB,userId,input,now));
+    if (url.pathname === '/api/repetitions') return json(await repetitionsRoute(env.DB,userId,input,now,compact));
     if (url.pathname === '/api/rounds/start') {
       const result=await startRoute(env.DB,userId,input,now,clock),sentAt=clock();
       return json({...result,serverNow:sentAt,processingMs:Math.max(0,sentAt-now)});
     }
     const end=url.pathname.match(/^\/api\/rounds\/([^/]+)\/(finish|abort)$/);
-    if (end) return json(await endRoute(env.DB,userId,end[1],end[2],input,now));
+    if (end) return json(await endRoute(env.DB,userId,end[1],end[2],input,now,compact));
     if (url.pathname === '/api/competitions') return json(await createCompetition(env.DB,userId,input,now));
     const cancellation=url.pathname.match(/^\/api\/competitions\/([^/]+)\/cancel$/);
-    if(cancellation)return json(await cancelCompetition(env.DB,userId,cancellation[1],input,now));
+    if(cancellation)return json(await cancelCompetition(env.DB,userId,cancellation[1],input,now,compact));
     const invitation=url.pathname.match(/^\/api\/invitations\/(preview|accept)$/);
-    if (invitation) return json(await invitationRoute(env.DB,userId,input,invitation[1],now));
+    if (invitation) return json(await invitationRoute(env.DB,userId,input,invitation[1],now,compact));
     reject(404,'NOT_FOUND','Страница не найдена.');
   } catch (error) {
     if (error instanceof ApiError) return json({error:{code:error.code,message:error.message}},error.status);
-    console.error('API Error in handleApi:', error);
+    console.error('API request failed:', error.name);
     return json({error:{code:'SERVER_ERROR',message:'Не удалось сохранить данные. Повторите отправку; повторения не продублируются.'}},500);
   }
 }

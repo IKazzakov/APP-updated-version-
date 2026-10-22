@@ -15,6 +15,12 @@ const event = (id = 'repeat-1') => ({id, occurredAt: '2026-10-20T12:00:00.000Z'}
 const nextTurn = () => new Promise(resolve => setImmediate(resolve));
 function box(storage, options) {return new Outbox('test-user', {storage, autoRetry: false, ...options});}
 
+test('short batching persists every event and explicit round flush immediately sends the entire pending batch',async()=>{
+  const storage=new MemoryStore(),sent=[],outbox=box(storage,{flushDelayMs:60000,api:async(_path,{body})=>{sent.push(body.events);return {state:{confirmed:true}};}});
+  await outbox.add(event('one'));await outbox.add(event('two'));assert.equal(sent.length,0);assert.equal(await outbox.count(),2);
+  await outbox.flush();assert.equal(sent.length,1);assert.equal(sent[0].length,2);assert.equal(await outbox.count(),0);outbox.close();
+});
+
 test('persists before sending, confirms only after success, and excludes body/identity fields', async () => {
   const storage = new MemoryStore(), statuses = []; let release;
   const wait = new Promise(resolve => {release = resolve;});

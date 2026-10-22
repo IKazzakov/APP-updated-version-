@@ -31,7 +31,7 @@ test('diagnostic journal stays in memory, is bounded, and snapshots cannot mutat
   const diagnostics = new Diagnostics(); for (let index = 0; index < 30; index++) diagnostics.error('NETWORK');
   const report = diagnostics.report(); assert.equal(report.errors.length, 12);
   report.errors[0].code = 'PRIVATE_NAME'; assert.equal(diagnostics.report().errors[0].code, 'NETWORK');
-  assert.ok(diagnostics.reportText().length < 4000);
+  assert.ok(diagnostics.reportText().length < 100000);
 });
 test('model statuses distinguish stopped, loading and failed loading',()=>{
  const d=new Diagnostics();

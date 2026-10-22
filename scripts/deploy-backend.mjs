@@ -54,6 +54,8 @@ export async function smokeBackend(origin,request=fetch){
     const guest=await call('auth/guest',{method:'POST',body:{secret}});
     if(guest.status!==200)throw new Error(`Guest registration failed: HTTP ${guest.status}`);
     registered=true;
+    const compact=await call('v2/dashboard',{secret});
+    if(compact.status!==200||compact.data.profile!==null||!Array.isArray(compact.data.rounds))throw new Error('Compact API/D1 migration check failed.');
     const state=await call('state',{secret});
     if(state.status!==200||state.data.profile!==null||!Number.isFinite(state.data.serverNow))throw new Error('Authenticated D1 state check failed.');
   }finally{
@@ -69,6 +71,9 @@ async function main(){
   if(!/^[a-f0-9]{32}$/i.test(accountId))throw new Error('CLOUDFLARE_ACCOUNT_ID must be the 32-character Account ID, not an API token or Zone ID.');
   await stat(resolve(root,'dist/client/index.html'));
   const config=JSON.parse(await readFile(resolve(root,'wrangler.backend.json'),'utf8'));
+  const target=process.env.BACKEND_TARGET||'production';
+  if(!['production','staging'].includes(target))throw new Error('Unknown backend target.');
+  if(target==='staging'){config.name+='-staging';config.d1_databases[0].database_name+='-staging';config.ratelimits[0].namespace_id='250301';}
   const {databaseId,subdomain}=await provisionDatabase({accountId,token,name:config.d1_databases[0].database_name});
   config.account_id=accountId;
   config.main=resolve(root,config.main);config.assets.directory=resolve(root,config.assets.directory);
@@ -87,7 +92,7 @@ async function main(){
     try{checks=await smokeBackend(url);break;}catch(error){lastError=error;if(attempt<5)await pause(2000);}
   }
   if(!checks)throw lastError;
-  const report={url,apiBaseUrl:`${url}/api`,version:VERSION,commit:process.env.GITHUB_SHA||null,checks};
+  const report={target,url,apiBaseUrl:`${url}/api`,version:VERSION,commit:process.env.GITHUB_SHA||null,checks};
   await writeFile(resolve(root,'work/backend/deployment.json'),JSON.stringify(report,null,2)+'\n');
   if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,`## Движение ${VERSION}\n\nСервер: ${url}\n\nАдрес для APK: ${url}/api\n\nHealth, JSON, D1, индивидуальная сессия и выход: проверено.\n`);
   console.log(`Backend ${VERSION} deployed and verified: ${url}`);

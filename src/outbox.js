@@ -1,3 +1,4 @@
+import {activity} from './activity-log.js';
 import {api as defaultApi, ApiError} from './api.js';
 
 const DATABASE = 'exercise-counter-outbox-v1';
@@ -57,10 +58,10 @@ function cleanEvent(event) {
 }
 
 export class Outbox {
-  constructor(userId, {api = defaultApi, onStatus = () => {}, storage, autoRetry = true} = {}) {
+  constructor(userId, {api = defaultApi, onStatus = () => {}, storage, autoRetry = true, flushDelayMs=0} = {}) {
     if (!userId) throw new ApiError('AUTH_REQUIRED', 401);
     this.storage = storage || new IndexedDbOutboxStore(userId); this.api = api; this.onStatus = onStatus;
-    this.latestState = null; this.autoRetry = autoRetry; this.closed = false; this.started = null; this.inflight = null; this.lastError = null;
+    this.flushDelayMs=flushDelayMs;this.flushTimer=null;this.latestState = null; this.autoRetry = autoRetry; this.closed = false; this.started = null; this.inflight = null; this.lastError = null;
     this.online = () => {this.flush().catch(() => {});};
   }
   async init() {
@@ -92,11 +93,13 @@ export class Outbox {
     catch (error) {this.reportFailure(error); throw this.lastError;}
     // Persistence completes before the first network request. A lost response
     // retries the same event ID instead of inventing another one.
-    this.flush().catch(() => {});
+    activity.record('queue.saved',{local:true});
+    if(this.flushDelayMs>0){if(!this.flushTimer){this.flushTimer=setTimeout(()=>{this.flushTimer=null;this.flush().catch(()=>{});},this.flushDelayMs);this.flushTimer.unref?.();}}else this.flush().catch(() => {});
     return safe.id;
   }
   async count() {await this.init(); return (await this.storage.list()).length;}
   async flush({retryFailed = false} = {}) {
+    clearTimeout(this.flushTimer);this.flushTimer=null;
     await this.init();
     if (this.closed) return null;
     if (this.inflight) {const previous = await this.inflight; return await this.flush({retryFailed}) || previous;}
@@ -115,12 +118,14 @@ export class Outbox {
       if (!batch.length) {await this.notify(false); return latestState;}
       await this.notify(true);
       try {
+        activity.record('queue.sending',{items:batch.length});
         const result = await this.api('repetitions', {method: 'POST', body: {events: batch.map(entry => entry.event)}});
         await this.storage.remove(batch.map(entry => entry.event.id));
+        activity.record('queue.confirmed',{items:batch.length});
         latestState = result.state || latestState; this.latestState = latestState || this.latestState; this.lastError = null;
       } catch (caught) {
         const error = caught instanceof ApiError ? caught : new ApiError('NETWORK');
-        this.lastError = error;
+        this.lastError = error;activity.record('queue.error',{code:error.code,items:batch.length});
         if (error.status >= 400 && error.status < 500 && ![401, 408, 429].includes(error.status)) {
           // Rejected data remains visible for an explicit retry; never discard
           // a failed batch or loop forever against a validation error.
@@ -133,7 +138,7 @@ export class Outbox {
     return latestState;
   }
   close() {
-    this.closed = true; clearInterval(this.interval); globalThis.removeEventListener?.('online', this.online);
+    this.closed = true; clearTimeout(this.flushTimer);clearInterval(this.interval); globalThis.removeEventListener?.('online', this.online);
     if (!this.inflight) this.storage.close();
   }
 }

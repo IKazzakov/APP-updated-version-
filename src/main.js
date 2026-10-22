@@ -1,10 +1,14 @@
 import './style.css';
 import {Training} from './training.js';
-import {api,ApiError,getTestUser,signInGuest,signOutDevice,getConnectionDiagnostic} from './api.js';
+import {api as transport,ApiError,getTestUser,signInGuest,signOutDevice,getConnectionDiagnostic} from './api.js';
+import {createDataClient,mergeState} from './data-client.js';
+import {HistoryLoader} from './history.js';
 import {Outbox} from './outbox.js';
 import {Diagnostics} from './diagnostics.js';
+import {DiagnosticsPanel} from './diagnostics-panel.js';
+import {activity} from './activity-log.js';
 import {comparableRounds} from './progress.js';
-import {copyReport,selectReport} from './clipboard.js';
+import {copyReport} from './clipboard.js';
 import {RULES_VERSION,VERSION} from './config.js';
 import {CameraLease} from './camera-lease.js';
 import {RoundPreparation} from './round-preparation.js';
@@ -15,6 +19,8 @@ import {ScreenWakeLock} from './wake-lock.js';
 import {isNativeApp, invitationOrigin, getApiBaseUrl, setNativeApiUrl, profileStorageId,migrateLegacyApi} from './platform.js';
 
 migrateLegacyApi();
+const dataClient=createDataClient(transport);
+const api=(path,options)=>dataClient.request(path,options);
 
 const $=id=>document.getElementById(id);
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -26,7 +32,23 @@ let loading=false,loadError=null,localPracticeSession=false;
 let authBusy=false,outboxOwner=null;
 let visualSignal=null;
 const pendingWrites=new Set();
+const historyLoader=new HistoryLoader({api,onError:error=>showError(errorMessage(error)),onPage:(kind,items,{append})=>{
+  if(!state?.profile)return;
+  const merge=(a,b,key)=>[...new Map([...a,...b].map(v=>[v[key],v])).values()];
+  if(kind==='rounds')state.rounds=merge(state.rounds,items,'id').sort((a,b)=>b.finishedAt-a.finishedAt||b.id.localeCompare(a.id));
+  if(kind==='competitions')state.competitions=merge(append?state.competitions:[],items,'id');
+  if(kind==='progress')state.days=merge(state.days,items.map(d=>{const count=Math.max(d.count,state.days.find(o=>o.date===d.date)?.count||0);return {...d,count,completed:count>=10};}),'date');
+  if(kind==='weeks'){
+    state.weekly.summaries=merge(state.weekly.summaries,items,'week').sort((a,b)=>b.week.localeCompare(a.week));
+    state.weekly.periods=merge(state.weekly.periods,items.map(w=>({week:w.week,closed:true,rulesVersion:w.rulesVersion,startsAt:Date.parse(w.week+'T00:00:00+02:00'),endsAt:Date.parse(w.week+'T00:00:00+02:00')+604800000})),'week').sort((a,b)=>b.week.localeCompare(a.week));
+  }
+  renderData();renderPagination();
+}});
 const diagnostics=new Diagnostics();
+const diagnosticsPanel=new DiagnosticsPanel({diagnostics,native:isNativeApp(),serverUrl:getApiBaseUrl(),onCheckServer:()=>load(),onRetry:()=>retrySync(),onServerChange:value=>{
+  if(engine.state.cameraOn||engine.state.starting||busy||roundSaving||preparation.pending)throw new Error('BUSY');
+  setNativeApiUrl(value);outbox?.close();location.reload();
+}});
 const cameraLease=new CameraLease({native:isNativeApp()});
 const wakeLock=new ScreenWakeLock();
 const sound=new RoundSound({onChange:message=>{text('sound-status',message);if(lastTraining)renderTraining(engine.state);}});
@@ -55,8 +77,7 @@ function setConnection(){
   $('retry-sync').disabled=loading;
   text('retry-sync',outbox?'Повторить сохранение':'Повторить подключение');
   const report=getConnectionDiagnostic();
-  text('server-result',loading?'Проверяем соединение…':`${report.status ? `HTTP ${report.status} · ` : ''}${report.code}`);
-  $('check-server').disabled=loading;
+  diagnosticsPanel.connection({loading,report});
   if(loading){el.textContent='Подключаемся к серверу…';return;}
   if(!state?.profile){el.textContent=loading?'Подключаемся к серверу…':'Профиль не загружен. Камеру и подсчёт можно проверить в обычной тренировке.';return;}
   if(loadError){el.textContent=errorMessage(loadError);return;}
@@ -67,22 +88,26 @@ function setConnection(){
   el.textContent=state?.profile?'Прогресс подтверждён сервером · видео остаётся на телефоне':'Загружаем ваш прогресс…';
 }
 async function applyState(next){
+  next=mergeState(state,next);
   if(!next||!Number.isFinite(next.serverNow)||!Array.isArray(next.days)||!Array.isArray(next.rounds)||!Array.isArray(next.competitions))throw new ApiError('API_RESPONSE_INVALID',200);
   state=next;
+  historyLoader.setOwner(state.profile?.id);
   $('auth-panel').hidden=true;
   if(!state.profile){
     const preferredName=getTestUser()||'Участник';
     await api('profile',{method:'POST',body:{displayName:preferredName,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC'}});
-    state=await api('state');
+    state=await api('state');historyLoader.setOwner(state.profile?.id);
   }
   const owner=profileStorageId(state.profile.id);
   if(outbox&&outboxOwner!==owner){outbox.close();outbox=null;outboxReady=false;}
   if(!outbox){
     outboxOwner=owner;
-    outbox=new Outbox(owner,{api,onStatus:status=>{if(outboxOwner!==owner||!state?.profile)return;sync=status;if(status.state&&status.state.serverNow>=state.serverNow){state=status.state;renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();if(!status.pending&&!status.saving)refreshQuietly();}});
+    outbox=new Outbox(owner,{api,flushDelayMs:1500,onStatus:status=>{if(outboxOwner!==owner||!state?.profile)return;sync=status;if(status.state){state=mergeState(state,status.state);renderData();}else if(state?.weekly)weekly.render(state,sync,tab==='training');setConnection();}});
     try{await outbox.init();outboxReady=true;}catch(error){outbox.close();outbox=null;outboxReady=false;throw error;}
   }
   renderData();setConnection();renderTraining(engine.state);
+  if(dataClient.compact&&next.compact&&tab==='today')await loadCalendar();
+  if(dataClient.compact&&next.compact&&tab==='competitions')await loadHistory('competitions',{refresh:true});
 }
 async function load(){
   if(loading)return;
@@ -129,6 +154,18 @@ function renderData(){
   text('regularity-points',s.points);text('last-seven',`${s.last7} из 7`);
   renderCalendar();renderCompetitions();renderProgress();weekly.render(s,sync,tab==='training');
 }
+async function loadHistory(kind,options={}){
+  if(!dataClient.compact||!state?.profile)return;
+  const pending=historyLoader.load(kind,options);renderPagination();try{await pending;}finally{renderPagination();}
+}
+function renderPagination(){
+  for(const [kind,id] of [['rounds','history-more'],['competitions','competitions-more'],['weeks','weeks-more']]){const el=$(id);if(!el)continue;const page=historyLoader.info(kind);el.hidden=!dataClient.compact||!page.next;el.disabled=!!page.loading;}
+}
+async function loadCalendar(){
+  if(!state?.today)return;
+  const [year,month]=state.today.date.split('-').map(Number),first=new Date(Date.UTC(year,month-1+calendarOffset,1)),last=new Date(Date.UTC(year,month+calendarOffset,0));
+  await loadHistory('progress',{from:first.toISOString().slice(0,10),to:last.toISOString().slice(0,10)});
+}
 function renderCalendar(){
   if(!state)return;
   const [year,month]=state.today.date.split('-').map(Number),cursor=new Date(Date.UTC(year,month-1+calendarOffset,1));
@@ -146,7 +183,7 @@ function renderCalendar(){
 }
 function renderProgress(){
   const p=comparableRounds(state.rounds,RULES_VERSION);
-  text('last-result',p.last?.count??'—');text('personal-record',p.record?.count??p.record??'—');
+  text('last-result',p.last?.count??'—');text('personal-record',state.stats?.record??p.record?.count??p.record??'—');
   text('result-comparison',!p.last?'Первый завершённый раунд станет вашей исходной точкой.':!p.previous?'Первая завершённая минута — ваша исходная точка. После следующей появится сравнение.':`Предыдущий результат — ${p.previous.count}. ${p.delta>0?`На ${p.delta} повторения больше`:p.delta<0?`На ${Math.abs(p.delta)} повторения меньше`:'Столько же повторений'}.`);
   $('round-history').innerHTML=p.history.length?p.history.map(r=>`<div class="history-row"><div>${escape(dateLabel(r.finishedAt||r.endsAt,{day:'numeric',month:'short',year:'numeric'}))}<small>${escape(dateLabel(r.finishedAt||r.endsAt,{hour:'2-digit',minute:'2-digit'}))}</small></div><span>${r.kind==='competition'?'Соревнование':'Личный раунд'}<small>${escape(r.rulesVersion)}</small></span><strong>${r.count}</strong></div>`).join(''):'<p class="empty-state">Пока нет завершённых минутных раундов.<br>Попробуйте «Мой результат за 60 секунд».</p>';
   const history=[...p.history].reverse();
@@ -175,11 +212,14 @@ function renderCompetitions(){
   if(created?.status==='cancelled'){$('invite-created').hidden=true;activeInvitation=null;}
 }
 function setTab(next){
+  if(next!==tab)activity.record('ui.tab',{action:next});
   if(tab==='training'&&next!=='training'){cancelCountdown();engine.stopCamera('Вы перешли в другой раздел');}
   tab=next;
   for(const el of document.querySelectorAll('[data-tab]')){el.classList.toggle('active',el.dataset.tab===next);if(el.dataset.tab===next)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');}
   for(const el of document.querySelectorAll('.tab-content'))el.hidden=el.id!==`tab-${next}`;
-  if(next==='competitions')weekly.activate();
+  if(next==='competitions'){weekly.activate();loadHistory('competitions',{refresh:true});}
+  if(next==='progress'){loadHistory('rounds');loadHistory('weeks');}
+  if(next==='today')loadCalendar();
   if(next!=='training')refreshQuietly();
 }
 function chooseMode(next,id=null){
@@ -225,7 +265,7 @@ function renderTraining(s){
   $('sound-controls').hidden=!timed;
   $('start').disabled=busy||roundSaving||s.starting||(timed&&localPractice)||(!timed&&s.cameraOn&&!s.paused);
   text('start',roundSaving?'Сохраняем результат…':timed?'Подготовиться':!s.cameraOn?'Начать':'Продолжить');
-  $('diag-values').innerHTML=Object.entries({Модель:'Pose Landmarker Full',Правила:RULES_VERSION,Камера:s.resolution,'Кадров/с':s.fps,'Обработка, мс':s.inferenceMs,Состояние:s.phase}).map(([k,v])=>`<dt>${escape(k)}</dt><dd>${escape(v)}</dd>`).join('');
+
 }
 async function saveRepetition(event){
   if(localPracticeSession||!outboxReady||!outbox)return;
@@ -242,7 +282,7 @@ async function start(){
   if(busy||roundSaving||preparation.pending||(mode!=='practice'&&(!state?.profile||!outboxReady)))return;
   showError('');$('round-result').hidden=true;
   visualSignal=null;
-  if(mode==='practice'){if(!engine.state.cameraOn)localPracticeSession=!state?.profile||!outboxReady;busy=true;renderTraining(engine.state);try{if(await acquireCamera()){wakeLock.acquire();await engine.startPractice();}}finally{busy=false;renderTraining(engine.state);}return;}
+  if(mode==='practice'){if(!engine.state.cameraOn)localPracticeSession=!state?.profile||!outboxReady;busy=true;renderTraining(engine.state);try{if(await acquireCamera()){wakeLock.acquire();await engine.startPractice();$('video-layer').scrollIntoView({block:'center',behavior:'instant'});}}finally{busy=false;renderTraining(engine.state);}return;}
   // AudioContext is created/resumed inside this user gesture, before awaiting
   // the camera permission. Only this explicit action can arm automatic start.
   const audioReady=sound.enabled?sound.unlock():Promise.resolve(false);
@@ -253,6 +293,7 @@ async function start(){
     wakeLock.acquire();
     if(generation!==preparation.generation)return;
     const ready=await engine.prepareRound(mode);
+    if(ready)$('video-layer').scrollIntoView({block:'center',behavior:'instant'});
     if(!ready||document.hidden){preparation.cancel();wakeLock.release();return;}
     preparation.wait(generation);
   }finally{await audioReady;busy=false;renderTraining(engine.state);}
@@ -289,6 +330,7 @@ async function acquireCamera(){
 }
 function finalKey(){return `movement.finalization.${profileStorageId(state?.profile?.id)}`;}
 async function saveRound(result){
+  activity.record('round.end',{stage:result.status});
   if(!result.id||!state?.profile)return;
   if(result.status==='completed')preparation.complete();else preparation.cancel();
   roundSaving=true;
@@ -387,23 +429,13 @@ $('cancel-preparation').onclick=()=>{cancelCountdown();engine.stopCamera('Под
 $('sound-enabled').onchange=event=>{sound.setEnabled(event.target.checked);if(sound.enabled)sound.unlock();else text('sound-status','Звук выключен. Ориентируйтесь на экран.');};
 $('test-sound').onclick=async()=>{if(!sound.enabled){text('sound-status','Включите «Звук», чтобы проверить сигнал.');return;}if(await sound.unlock()){sound.stop();if(sound.play('start'))text('sound-status','Проверочный сигнал воспроизведён. Проверьте громкость телефона.');}};$('pause').onclick=()=>engine.state.paused?engine.resume():engine.pause();$('reset').onclick=()=>engine.reset();
 $('stop').onclick=()=>{cancelCountdown();engine.stopCamera();cameraLease.release();wakeLock.release();};$('early-stop').onclick=()=>{engine.abortRound('Завершено досрочно');wakeLock.release();};$('switch-camera').onclick=async()=>{cancelCountdown();busy=true;try{await engine.switchCamera();}finally{busy=false;renderTraining(engine.state);}};$('show-points').onchange=e=>engine.setOverlay(e.target.checked);
-$('month-prev').onclick=()=>{calendarOffset--;renderCalendar();};$('month-next').onclick=()=>{calendarOffset=Math.min(0,calendarOffset+1);renderCalendar();};
-$('create-challenge').onclick=createChallenge;$('refresh-challenges').onclick=refreshQuietly;
+$('month-prev').onclick=()=>{calendarOffset--;renderCalendar();loadCalendar();};$('month-next').onclick=()=>{calendarOffset=Math.min(0,calendarOffset+1);renderCalendar();loadCalendar();};
+$('history-more').onclick=()=>loadHistory('rounds',{more:true});$('competitions-more').onclick=()=>loadHistory('competitions',{more:true});$('weeks-more').onclick=()=>loadHistory('weeks',{more:true});
+$('create-challenge').onclick=createChallenge;$('refresh-challenges').onclick=()=>{refreshQuietly();loadHistory('competitions',{refresh:true});};
 $('cancel-created-challenge').onclick=()=>{if(activeInvitation)cancelChallenge(activeInvitation.id);};
-$('retry-sync').onclick=async()=>{if(loadError||!outbox){await load();return;}try{const saved=await outbox.flush({retryFailed:true});if(saved)await applyState(saved);}catch(error){showError(errorMessage(error));}};
-$('check-server').onclick=()=>load();
-$('server-form').onsubmit=event=>{
-  event.preventDefault();
-  try{
-    if(engine.state.cameraOn||engine.state.starting||busy||roundSaving||preparation.pending)throw new Error('Выключите камеру и дождитесь окончания текущего действия перед сменой сервера.');
-    setNativeApiUrl($('server-url').value);
-    outbox?.close();
-    location.reload();
-  }catch(error){text('server-result',error.message);}
-};
+async function retrySync(){if(loadError||!outbox){await load();return;}try{const saved=await outbox.flush({retryFailed:true});if(saved)await applyState(saved);}catch(error){showError(errorMessage(error));}}
 $('copy-invite').onclick=async()=>{const success=await copyReport($('invite-url'));text('invite-copy-status',success?'Ссылка скопирована. Отправьте её другу.':'Выделите ссылку и скопируйте вручную.');};
-$('copy').onclick=async()=>{updateDiagnostics(engine.state);$('copy-fallback').value=diagnostics.reportText();const ok=await copyReport($('copy-fallback'));text('copy-status',ok?'Диагностика скопирована. Вставьте её в чат.':'Отчёт подготовлен ниже. Выделите его и скопируйте вручную.');};$('select-report').onclick=()=>selectReport($('copy-fallback'));
-window.addEventListener('online',()=>{setConnection();refreshQuietly();});window.addEventListener('offline',setConnection);
+window.addEventListener('online',()=>{activity.record('app.online');setConnection();refreshQuietly();});window.addEventListener('offline',()=>{activity.record('app.offline');setConnection();});
 window.addEventListener('hashchange',()=>{
   const invitation=location.hash.match(/^#invite=([a-f0-9]{64})$/);
   if(!invitation)return;
@@ -415,7 +447,7 @@ window.addEventListener('popstate',()=>{
   if(!$('profile-panel').hidden)closeProfile(false);
 });
 window.addEventListener('storage',event=>{if(event.key?.startsWith('movement.'))refreshQuietly();});
-document.addEventListener('visibilitychange',()=>{if(document.hidden){cancelCountdown();wakeLock.release();}else{refreshQuietly();}});
+document.addEventListener('visibilitychange',()=>{activity.record('app.visibility',{hidden:document.hidden});if(document.hidden){cancelCountdown();wakeLock.release();}else{refreshQuietly();}});
 // Keep the interruption write small and synchronous to initiate while the page
 // is leaving. Server timeout also marks an unconfirmed attempt aborted.
 window.addEventListener('pagehide',()=>{cameraLease.release();wakeLock.release();const round=engine.clock.id;if(round&&engine.roundStatus!=='completed'){api(`rounds/${round}/abort`,{method:'POST',body:{},keepalive:true}).catch(()=>{});}});
@@ -423,7 +455,7 @@ const quickGuestBtn=$('quick-guest-btn');
 async function login(name){
   if(authBusy||loading)return;
   authBusy=true;quickGuestBtn.disabled=true;$('test-login-btn').disabled=true;
-  try{await signInGuest(name);$('auth-panel').hidden=true;await load();}
+  try{await signInGuest(name);activity.record('auth.login');$('auth-panel').hidden=true;await load();}
   catch(error){showError(errorMessage(error));}
   finally{authBusy=false;quickGuestBtn.disabled=false;$('test-login-btn').disabled=false;}
 }
@@ -453,9 +485,9 @@ if(signOutBtn){
     cancelCountdown();engine.stopCamera();
     await Promise.all([...pendingWrites]);
     if(outbox&&await outbox.count()){showError('Сначала дождитесь сохранения повторений, затем выйдите из профиля.');return;}
-    await signOutDevice();
+    await signOutDevice();activity.record('auth.logout');
     outboxOwner=null;
-    state=null;
+    state=null;historyLoader.setOwner(null);
     if(outbox){outbox.close();outbox=null;outboxReady=false;}
     closeProfile(false);
     $('auth-panel').hidden=false;
@@ -470,10 +502,6 @@ if(signOutBtn){
 const apkBox=document.querySelector('.apk-download-box');
 if(apkBox)apkBox.hidden=true;
 if(!isNativeApp())fetch('/app-debug.apk.json',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(info=>{if(apkBox&&info?.version===VERSION)apkBox.hidden=false;}).catch(()=>{});
-if(isNativeApp()){
-  $('server-settings').hidden=false;
-  $('server-url').value=getApiBaseUrl();
-}
 if(!isNativeApp() && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')){
   window.addEventListener('load',()=>{
     navigator.serviceWorker.register('/sw.js').catch(()=>{});

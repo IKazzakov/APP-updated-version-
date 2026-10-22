@@ -1,6 +1,6 @@
 {
   "name": "exercise-counter",
-  "version": "2.5.2",
+  "version": "2.5.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,7 +23,10 @@
     "test:browser:backend": "node tests/browser-backend.mjs",
     "lint": "node --check src/main.js server/worker.js server/api.js server/rules.js server/weeks.js scripts/build.mjs",
     "backend:validate": "node scripts/validate-backend.mjs",
-    "backend:deploy": "node --use-env-proxy scripts/deploy-backend.mjs"
+    "backend:deploy": "node --use-env-proxy scripts/deploy-backend.mjs",
+    "build:apk:staging": "node scripts/build-staging-apk.mjs",
+    "test:browser:diagnostics": "node tests/browser-diagnostics.mjs",
+    "benchmark:server": "node scripts/benchmark-server.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

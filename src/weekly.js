@@ -50,7 +50,7 @@ export class WeeklyUI {
     $('league-week').value=this.week;
     this.renderSummaries(w.summaries,training);
     const totals=new Map(w.summaries.map(s=>[s.week,s.points.fullWeek+s.points.sport]));totals.set(local.week,local.points.fullWeek+local.points.sport);
-    const bonus=[...totals.values()].reduce((a,b)=>a+b,0);
+    const bonus=Number.isFinite(state.bonusPoints)?state.bonusPoints:[...totals.values()].reduce((a,b)=>a+b,0);
     if(this.lastBonus!==null&&bonus>this.lastBonus&&!training){$('bonus-notice').hidden=false;$('bonus-notice').textContent=`Получен недельный бонус: +${bonus-this.lastBonus} баллов`;$('your-week').classList.remove('bonus-earned');requestAnimationFrame(()=>$('your-week').classList.add('bonus-earned'));}
     this.lastBonus=bonus;
     // Synchronization regularly renders identical state with a new serverNow.

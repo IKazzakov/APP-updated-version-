@@ -1,3 +1,4 @@
+import {activity,activityRoute} from './activity-log.js';
 import {getApiBaseUrl, isNativeApp, nativeApiRequest} from './platform.js';
 import {deviceSecret,usesDeviceAuth,requireDeviceAuth,newDeviceSecret,forgetDeviceSecret} from './device-auth.js';
 export {getApiBaseUrl} from './platform.js';
@@ -116,6 +117,8 @@ export async function signOutDevice(){
 export async function api(path, {method = 'GET', body, keepalive = false} = {}) {
   const relative = String(path).replace(/^\/api\/?/, '').replace(/^\//, '');
   if (!relative || relative.includes('://') || relative.startsWith('//') || relative.includes('..')) throw new ApiError('INVALID_REQUEST', 400);
+  const started=performance.now(),route=activityRoute(relative);
+  activity.record('request.start',{route,method});
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
@@ -144,9 +147,11 @@ export async function api(path, {method = 'GET', body, keepalive = false} = {}) 
     if (!response.ok) throw new ApiError(data?.error?.code || data?.code || (response.status === 401 ? 'AUTH_REQUIRED' : 'SERVER_ERROR'), response.status);
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new ApiError('API_RESPONSE_INVALID', response.status);
     if (relative === 'state' && (!Number.isFinite(data.serverNow) || !Array.isArray(data.days) || !Array.isArray(data.rounds) || !Array.isArray(data.competitions))) throw new ApiError('API_RESPONSE_INVALID', response.status);
+    activity.record('request.end',{route,method,status:response.status,ms:performance.now()-started});
     return data;
   } catch (error) {
     const failure = error instanceof ApiError ? error : new ApiError(error?.name === 'AbortError' ? 'TIMEOUT' : 'NETWORK');
+    activity.record('request.error',{route,method,status:failure.status,ms:performance.now()-started,code:failure.code});
     connectionDiagnostic = {status: failure.status || null, code: failure.code};
     throw failure;
   } finally { clearTimeout(timeout); }

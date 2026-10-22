@@ -6,7 +6,7 @@ import {POSE_WORKER} from './browser-pose-fixture.mjs';
 const require=createRequire(import.meta.url);
 const {chromium}=require('playwright-core');
 const origin=process.env.TEST_ORIGIN||'http://127.0.0.1:4175';
-const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
+const browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream']});
 const errors=[],results=[];
 async function context(failure){
   const c=await browser.newContext({viewport:{width:393,height:852},isMobile:true,permissions:['camera'],serviceWorkers:'block'});
@@ -59,6 +59,7 @@ try{
   assert.equal(await offline.p.locator('#start').isDisabled(),true);
   assert.match(await offline.p.locator('#local-practice-note').textContent(),/требуют подключения/);
   results.push('Сервер недоступен: камера запрошена, повторение посчитано локально, серверный раунд заблокирован с объяснением');
+  await offline.p.locator('#diagnostics>summary').click();
   await offline.p.locator('#server-settings summary').click();
   await offline.p.locator('#server-url').fill('https://new-server.test/');await offline.p.locator('#server-form button').click();
   await offline.p.waitForFunction(()=>document.getElementById('server-url').value==='https://new-server.test/api');
