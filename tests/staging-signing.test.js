@@ -10,8 +10,8 @@ import {
 } from '../scripts/staging-signing.mjs';
 
 const config = {
-  appId: 'com.movement.squat.staging',
-  appName: 'Движение Тест',
+  appId: 'com.movement.squat.staging.ui',
+  appName: 'Движение Тест UI',
   certificateSha256: 'a'.repeat(64),
 };
 

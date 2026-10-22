@@ -1,5 +1,5 @@
 {
-  "appId": "com.movement.squat.staging",
-  "appName": "Движение Тест",
-  "certificateSha256": "66902b5305769bb828cdea92df0206f7048ac37e8dd84dbb86b4d582225fb33c"
+  "appId": "com.movement.squat.staging.ui",
+  "appName": "Движение Тест UI",
+  "certificateSha256": "122721cc9aa1600dca3ba86f4318f0e3c43c3c4b562a5c8d3114ea4194dfc0de"
 }
