@@ -27,8 +27,9 @@
     "build:apk:staging": "node scripts/build-staging-apk.mjs",
     "test:browser:diagnostics": "node tests/browser-diagnostics.mjs",
     "benchmark:server": "node scripts/benchmark-server.mjs",
-    "format": "prettier --write \"src/**/*.{js,ts,css,html}\" index.html tsconfig.json .prettierrc.json",
-    "format:check": "prettier --check \"src/**/*.{js,ts,css,html}\" index.html tsconfig.json .prettierrc.json"
+    "format": "prettier --write \"src/{app,services,features,shared,diagnostics}/**/*.{ts,css,html}\" \"src/*.d.ts\" src/main.js src/api.js src/data-client.js src/history.js src/diagnostics.js src/diagnostics-panel.js src/activity-log.js src/style.css src/diagnostics.css index.html tsconfig.json .prettierrc.json",
+    "format:check": "prettier --check \"src/{app,services,features,shared,diagnostics}/**/*.{ts,css,html}\" \"src/*.d.ts\" src/main.js src/api.js src/data-client.js src/history.js src/diagnostics.js src/diagnostics-panel.js src/activity-log.js src/style.css src/diagnostics.css index.html tsconfig.json .prettierrc.json",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",
