@@ -1,0 +1,74 @@
+name: Movement — reusable Android build
+
+on:
+  workflow_call:
+    secrets:
+      STAGING_ANDROID_KEYSTORE_BASE64:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore the persistent application signing key
+        env:
+          STAGING_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAGING_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          python3 - <<'PY_SIGNING'
+          import base64, os
+          from pathlib import Path
+          encoded = os.environ.get('STAGING_ANDROID_KEYSTORE_BASE64', '').strip()
+          if not encoded:
+              raise SystemExit('Missing STAGING_ANDROID_KEYSTORE_BASE64 Actions secret. Add it to this repository; see docs/ANDROID_SIGNING.md. No replacement key will be generated.')
+          key = base64.b64decode(encoded, validate=True)
+          if not key:
+              raise SystemExit('The staging signing key is empty.')
+          path = Path(os.environ['RUNNER_TEMP']) / 'movement-staging.keystore'
+          with open(path, 'xb') as stream:
+              os.chmod(path, 0o600)
+              stream.write(key)
+          with open(os.environ['GITHUB_ENV'], 'a') as stream:
+              stream.write(f'MOVEMENT_STAGING_KEYSTORE={path}\n')
+          PY_SIGNING
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: actions/cache@v4
+        with:
+          path: |
+            work/gradle/caches
+            work/gradle/wrapper
+          key: movement-gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle', 'android/gradle/wrapper/gradle-wrapper.properties', 'package-lock.json') }}
+          restore-keys: movement-gradle-${{ runner.os }}-
+      - run: npm ci
+      - name: Install Android build components
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
+      - name: Build the compatible application APK
+        run: npm run build:apk:staging
+        env:
+          VITE_API_BASE_URL: https://movement-test-api-staging.rojoscarlos93.workers.dev/api
+      - uses: actions/upload-artifact@v4
+        with:
+          name: movement-android-${{ github.sha }}
+          if-no-files-found: error
+          path: |
+            work/artifacts/app-debug.apk
+            work/artifacts/app-debug.apk.json
+            work/artifacts/app-debug.apk.sha256
+            work/artifacts/android-manifest.txt
+      - name: Remove the private key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/movement-staging.keystore"

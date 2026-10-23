@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Движение</string>
-    <string name="title_activity_main">Движение</string>
-    <string name="package_name">com.movement.squat</string>
-    <string name="custom_url_scheme">com.movement.squat</string>
+    <string name="app_name">Движение Тест UI</string>
+    <string name="title_activity_main">Движение Тест UI</string>
+    <string name="package_name">com.movement.squat.staging.ui</string>
+    <string name="custom_url_scheme">com.movement.squat.staging.ui</string>
 </resources>

@@ -1,74 +1,41 @@
-# Публикация сервера Движение
+# Единственный Cloudflare backend
 
-Ветка: `codex/backend-hosting-2.5.1`, новая версия клиента/API: **2.5.2**.
-Принятая 2.5.1 остаётся в `codex/build-android-apk` и коммите `5107454`.
+Основной репозиторий — APP-updated-version-, ветка main, версия 2.5.4.
 
-Опубликованный сервер: https://movement-test-api.rojoscarlos93.workers.dev
+Адрес: **https://movement-test-api-staging.rojoscarlos93.workers.dev**.
+Worker: `movement-test-api-staging`; D1: `movement-test-app-staging`.
+Это единственный основной сервер. Техническое имя сохранено ради существующих профилей и локальных очередей. История объединения и архива старой базы: [SINGLE_SERVER.md](SINGLE_SERVER.md).
 
-Адрес API для APK: https://movement-test-api.rojoscarlos93.workers.dev/api
+## Секреты
 
-## Разовое подключение
+В [Actions secrets основного репозитория](https://github.com/rojoscarlos-cpu/APP-updated-version-/settings/secrets/actions) должны находиться:
 
-1. В Cloudflare откройте Workers & Pages. Если аккаунт новый, выберите
-   поддомен `workers.dev`. Покупать или переносить домен не требуется.
-2. https://dash.cloudflare.com/profile/api-tokens → Create Token →
-   Create Custom Token. Название: `movement-github-deploy`.
-3. Permissions: Account / Workers Scripts / Edit; Account / D1 / Edit;
-   Account / Account Settings / Read. Account Resources: Include /
-   Specific account / ваш аккаунт.
-4. Continue to summary → Create Token. Сохраните значение в GitHub:
-   https://github.com/rojoscarlos-cpu/Test/settings/secrets/actions →
-   New repository secret → имя `CLOUDFLARE_API_TOKEN`.
-5. В Cloudflare → Workers & Pages → Account Details скопируйте Account ID.
-   Добавьте второй GitHub repository secret: `CLOUDFLARE_ACCOUNT_ID`.
+- `CLOUDFLARE_API_TOKEN`: Account / Workers Scripts / Edit, D1 / Edit, Account Settings / Read; область — нужный аккаунт.
+- `CLOUDFLARE_ACCOUNT_ID`: идентификатор аккаунта с workers.dev-поддоменом rojoscarlos93.
+- `STAGING_ANDROID_KEYSTORE_BASE64`: прежний ключ Android. Название секрета техническое; второй канал публикации оно не создаёт.
 
-Значения секретов не добавляйте в исходники, APK или переписку.
+Значения не входят в исходники, APK или журналы. GitHub не выдаёт значения существующих secrets для чтения. Восстановление ключа: [ANDROID_SIGNING.md](ANDROID_SIGNING.md).
 
-## Публикация
+## Выпуск
 
-Workflow `Backend — checks and deployment` запускается при push в ветку
-`codex/backend-hosting-2.5.1`. На PR выполняются только проверки.
-Публикация из других веток отключена, чтобы не перезаписать рабочий сервер.
+Обычный push и PR выполняют проверки; push main также собирает APK. Для отдельной публикации по прямой команде владельца:
 
-Сценарий проверяет тесты и сборку, находит или создаёт D1 `movement-test-app`,
-применяет миграции и публикует `movement-test-api`. База выбирается по точному
-имени; существующая база не заменяется. Повторный запуск сохраняет данные.
-Новые SQL-миграции добавляйте отдельными файлами, старые не меняйте.
+1. Actions → Movement — manual deployment → Run workflow.
+2. Выбрать main.
+3. В поле confirmation ввести `deploy` и запустить.
+4. Дождаться проверок, APK из того же коммита, миграций существующей D1, deploy и полного сравнения SHA-256 публичного скачивания.
 
-Адрес опубликованного API появится в Summary запуска и артефакте
-`backend-deployment` → `deployment.json`. Результат создаётся только после
-проверки JSON, версии, анонимного отказа, гостевой сессии, чтения D1 и выхода.
-Проверка не добавляет фиктивных профилей или приседаний в рейтинги.
+Других целей нет. Workflow разрешает деплой только из main, с единственным Worker/D1 и точным hostname. Отсутствующая основная база считается ошибкой — создание пустой замены запрещено.
 
-Если секреты добавлены после неудачного запуска, откройте запуск в GitHub
-Actions и выберите Re-run failed jobs. Когда workflow появится в `main`,
-можно также запускать его вручную через Run workflow, выбрав эту ветку.
+Прямой запуск из подготовленной среды с настроенными секретами:
 
-## APK и авторизация
+```sh
+npm run backend:deploy
+```
 
-Для нового API нужен клиент **2.5.2**: 2.5.1 передаёт тестовое имя вместо
-индивидуальной сессии и не сможет войти. После публикации APK собирается
-с `VITE_API_BASE_URL=<адрес>/api`; существующий клиент 2.5.2 позволяет также
-изменить адрес через «Подключение к серверу».
-Сохранённые адреса старых предпросмотров `ais-pre` / `ais-dev` этого проекта
-при первом запуске 2.5.2 заменяются новым адресом; другие настройки сохраняются.
+BACKEND_TARGET больше не поддерживается. Прежние команды с production/staging останавливаются до публикации. Применённые SQL-миграции не переписывать; изменения добавляются отдельными файлами.
 
-Гостевой профиль привязан к устройству и серверу. Имя — отображаемая подпись,
-не пароль. Одинаковые имена не объединяют аккаунты. На устройстве хранится
-случайный индивидуальный ключ, в D1 — его SHA-256. Выход отзывает сессию.
-Нельзя выйти при неподтверждённых повторениях: сначала дождитесь синхронизации.
-После выхода, удаления приложения или очистки данных новый гостевой старт
-создаёт другой профиль. Перенос аккаунта на другой телефон требует отдельной
-функции восстановления / входа и в этот этап не входит.
-
-Публичный Worker не доверяет `x-test-user-id` или заголовкам идентичности Sites.
-Регистрация ограничена по частоте; у каждого пользователя собственный токен.
-Административного ключа Cloudflare в приложении нет.
-
-Исходный приватный Sites и его D1 не меняются. Новый сервер использует отдельную
-базу: данные старого размещения автоматически не переносятся.
-
-## Локальная проверка
+## Проверка без публикации
 
 ```sh
 npm ci
@@ -77,24 +44,6 @@ npm run build
 npm run backend:validate
 ```
 
-`backend:validate` компилирует настоящий Worker и проверяет конфигурацию,
-не публикуя его. Для Node-предпросмотра: `npm run dev`. Он использует такую же
-авторизацию с локальной SQLite. Для исходного Sites-предпросмотра:
-`npm run dev:sites`.
+Последняя команда — dry-run. Локальный Node использует отдельную SQLite. До явного гостевого входа `/api/state` возвращает `401 DEVICE_AUTH_REQUIRED`; это нормальное требование авторизации.
 
-Для ручного деплоя с настроенными переменными окружения: `npm run backend:deploy`.
-Нужен Node.js 24+, TLS и штатный прокси сохраняются. В среде Codex сетевой доступ
-к Cloudflare не настроен, поэтому публикацию выполняет GitHub Actions.
-
-## Если публикация не прошла
-
-- Ошибка missing secrets: проверьте точные имена двух repository secrets.
-- Cloudflare 403: проверьте права токена и его Account Resources.
-- Ошибка workers.dev: закончите настройку поддомена в Workers & Pages.
-- Ошибка миграции: изучите сообщение; успешные предыдущие миграции сохраняются.
-- HTML вместо API: проверьте адрес, run_worker_first и выбранную версию сервера.
-- Рабочий адрес и логи: Cloudflare → Workers & Pages → movement-test-api.
-
-Документация: [Cloudflare tokens](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/),
-[Account ID](https://developers.cloudflare.com/fundamentals/account/find-account-and-zone-ids/),
-[GitHub secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets).
+Проверка выпуска подтверждает версию/JSON, отказ без сессии, гостевой вход, чтение D1 через API v1/v2 и отзыв тестовой сессии без добавления фиктивных профилей. Публичный APK проверяется по размеру, метаданным и полному SHA-256.

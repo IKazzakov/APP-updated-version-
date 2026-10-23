@@ -1,6 +1,6 @@
 {
-  "appId": "com.movement.squat",
-  "appName": "Движение",
+  "appId": "com.movement.squat.staging.ui",
+  "appName": "Движение Тест UI",
   "webDir": "dist/android-client",
   "server": {
     "androidScheme": "https"

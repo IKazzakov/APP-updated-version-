@@ -1,204 +1,32 @@
-name: Backend — checks and deployment
+name: Movement — checks and APK
+
 on:
   push:
-    branches: [codex/backend-hosting-2.5.1, codex/server-optimization]
+    branches: ['**']
   pull_request:
-    branches: [main, codex/build-android-apk]
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      build_apk:
+        description: Build a signed APK after all checks
+        type: boolean
+        default: false
+
 permissions:
   contents: read
+
 concurrency:
-  group: movement-backend-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref == 'refs/heads/codex/server-optimization' }}
+  group: movement-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npm run typecheck
-      - run: npm run format:check
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-      - run: npm run backend:validate
-      - name: Install browser test driver
-        run: npm install --prefix "$RUNNER_TEMP/browser-tools" --no-save playwright-core@1.58.2
-      - name: Check all browser scenarios in isolated cookie and device fixtures
-        env:
-          NODE_PATH: ${{ runner.temp }}/browser-tools/node_modules
-          CHROMIUM_PATH: /usr/bin/google-chrome
-          TESTSERVERPORT: '4185'
-        run: npm run test:browser:all
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: browser-checks
-          path: |
-            work/diagnostics-*.png
-            work/browser-ci.log
+    uses: ./.github/workflows/checks.yml
   android:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/server-optimization'
     needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    outputs:
-      commit_sha: ${{ steps.publish.outputs.commit_sha }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Restore the persistent test signing key
-        env:
-          STAGING_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAGING_ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          python3 - <<'PY_SIGNING'
-          import base64, os
-          from pathlib import Path
-          encoded = os.environ.get('STAGING_ANDROID_KEYSTORE_BASE64', '').strip()
-          if not encoded:
-              raise SystemExit('Missing STAGING_ANDROID_KEYSTORE_BASE64 Actions secret. See docs/ANDROID_SIGNING.md. No replacement key will be generated.')
-          key = base64.b64decode(encoded, validate=True)
-          if not key:
-              raise SystemExit('The staging signing key is empty.')
-          path = Path(os.environ['RUNNER_TEMP']) / 'movement-staging.keystore'
-          with open(path, 'xb') as stream:
-              os.chmod(path, 0o600)
-              stream.write(key)
-          with open(os.environ['GITHUB_ENV'], 'a') as stream:
-              stream.write(f'MOVEMENT_STAGING_KEYSTORE={path}\n')
-          PY_SIGNING
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - uses: actions/cache@v4
-        with:
-          path: |
-            work/gradle/caches
-            work/gradle/wrapper
-          key: movement-staging-gradle-v2-${{ runner.os }}
-      - run: npm ci
-      - name: Install Android build components
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
-      - name: Build independently installable staging APK
-        run: npm run build:apk:staging
-        env:
-          VITE_API_BASE_URL: https://movement-test-api-staging.rojoscarlos93.workers.dev/api
-      - uses: actions/upload-artifact@v4
-        with:
-          name: movement-2.5.3-staging-apk
-          path: work/artifacts/*
-      - name: Publish test APK on the implementation branch
-        id: publish
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add public/app-debug.apk public/app-debug.apk.json public/app-debug.apk.sha256
-          if ! git diff --cached --quiet; then
-            git commit -m 'build: publish isolated 2.5.3 staging APK [skip ci]'
-            git push origin HEAD:codex/server-optimization
-          fi
-          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-  staging:
-    if: ${{ !cancelled() && needs.check.result == 'success' && github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/server-optimization' }}
-    needs: [check, android]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.android.outputs.commit_sha || github.sha }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Deploy isolated staging Worker and D1 and verify
-        run: npm run backend:deploy
-        env:
-          BACKEND_TARGET: staging
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - name: Verify the public test APK download
-        run: |
-          node --input-type=module <<'JS_APK'
-          import assert from 'node:assert/strict';
-          import {readFile} from 'node:fs/promises';
-          import {createHash} from 'node:crypto';
-          const deployment = JSON.parse(await readFile('work/backend/deployment.json', 'utf8'));
-          const expected = JSON.parse(await readFile('public/app-debug.apk.json', 'utf8'));
-          assert.equal(deployment.target, 'staging');
-          assert.match(deployment.url, /^https:\/\/movement-test-api-staging\.[a-z0-9-]+\.workers\.dev$/);
-          const url = deployment.url + '/app-debug.apk';
-          const query = '?sha256=' + expected.sha256;
-          for (let attempt = 0; attempt < 8; attempt++) {
-            try {
-              const metadata = await fetch(url + '.json' + query, {cache: 'no-store', signal: AbortSignal.timeout(15000)});
-              assert.ok(metadata.ok, 'Public APK metadata failed: HTTP ' + metadata.status);
-              const info = await metadata.json();
-              for (const field of ['version', 'appId', 'size', 'sha256', 'signingCertificateSha256'])
-                assert.equal(info[field], expected[field], 'Public APK metadata is not current: ' + field);
-              const response = await fetch(url + query, {cache: 'no-store', signal: AbortSignal.timeout(60000)});
-              assert.ok(response.ok, 'Public APK download failed: HTTP ' + response.status);
-              const bytes = new Uint8Array(await response.arrayBuffer());
-              assert.equal(bytes.length, expected.size);
-              assert.equal(createHash('sha256').update(bytes).digest('hex'), expected.sha256);
-              console.log('Verified public APK download:', url);
-              console.log('APK SHA-256:', expected.sha256);
-              break;
-            } catch (error) {
-              if (attempt === 7) throw error;
-              console.log('Waiting for the published APK to become current; retry', attempt + 1);
-              await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-          }
-          JS_APK
-      - uses: actions/upload-artifact@v4
-        with:
-          name: staging-deployment
-          path: work/backend/deployment.json
-  deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/codex/backend-hosting-2.5.1'
-    needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - name: Check Cloudflare connection
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo '::error::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository Actions secrets. See docs/CLOUDFLARE_SETUP.md.'
-            exit 1
-          fi
-      - run: npm ci
-      - run: npm run build
-      - name: Provision D1, migrate, deploy and verify
-        run: npm run backend:deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: backend-deployment
-          path: work/backend/deployment.json
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_dispatch' && inputs.build_apk)
+    uses: ./.github/workflows/android.yml
+    secrets:
+      STAGING_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAGING_ANDROID_KEYSTORE_BASE64 }}

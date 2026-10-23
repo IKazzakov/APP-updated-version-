@@ -4,7 +4,7 @@
 
 Источник: `rojoscarlos-cpu/exercise-counter`, `main`,
 `291e65657ef77a9bbb461a90b908c9dbb8a611eb`.
-Получатель: `rojoscarlos-cpu/Test`, ветка `codex/sync-app-2.3.0`.
+Этот отчёт фиксирует промежуточный перенос 2.3.0 до появления текущего основного репозитория. Сейчас основной проект — `rojoscarlos-cpu/APP-updated-version-`, main 2.5.3. Актуальные исходники и CI: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 Все 71 исходных файла источника, включая модель Pose Full, сверены по Git
 blob SHA и совпали после переноса. Изменения относительно источника:

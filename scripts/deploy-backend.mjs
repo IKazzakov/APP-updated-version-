@@ -7,7 +7,24 @@ import {VERSION} from '../src/config.js';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const pause=ms=>new Promise(done=>setTimeout(done,ms));
 
-export async function provisionDatabase({accountId,token,name,request=fetch}){
+export const canonicalDeployment=Object.freeze({
+  worker:'movement-test-api-staging',
+  database:'movement-test-app-staging',
+  subdomain:'rojoscarlos93',
+  url:'https://movement-test-api-staging.rojoscarlos93.workers.dev',
+});
+
+export function validateDeploymentConfig(config,env=process.env){
+  if(env.BACKEND_TARGET?.trim())throw new Error('BACKEND_TARGET is no longer supported. Remove it; this project has one canonical server.');
+  if(config?.name!==canonicalDeployment.worker)throw new Error('The Worker does not match the canonical server.');
+  const databases=config.d1_databases;
+  if(!Array.isArray(databases)||databases.length!==1||databases[0]?.binding!=='DB'||databases[0].database_name!==canonicalDeployment.database)throw new Error('The DB binding must use the existing canonical database.');
+  if(!Array.isArray(config.ratelimits)||config.ratelimits.length!==1||config.ratelimits[0]?.name!=='AUTH_LIMITER'||config.ratelimits[0].namespace_id!=='250301')throw new Error('The registration limiter must use the canonical namespace.');
+  return canonicalDeployment;
+}
+
+export async function provisionDatabase({accountId,token,name=canonicalDeployment.database,request=fetch}){
+  if(name!==canonicalDeployment.database)throw new Error('Refusing to select a database outside the canonical service.');
   async function api(path,options={}){
     let response;
     try{response=await request(`https://api.cloudflare.com/client/v4/accounts/${accountId}${path}`,{...options,redirect:'error',signal:AbortSignal.timeout(30000),headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'}});}
@@ -28,13 +45,10 @@ export async function provisionDatabase({accountId,token,name,request=fetch}){
     return matches[0];
   }
   const subdomain=(await api('/workers/subdomain')).result?.subdomain;
-  if(!subdomain||!/^[a-z0-9][a-z0-9-]{0,62}$/.test(subdomain))throw new Error('Choose your workers.dev subdomain in Cloudflare → Workers & Pages first.');
-  let database=await lookup();
-  if(!database){
-    try{database=(await api('/d1/database',{method:'POST',body:JSON.stringify({name})})).result;}
-    catch(error){database=await lookup();if(!database)throw error;}
-  }
-  if(!/^[a-f0-9-]{36}$/.test(database?.uuid||''))throw new Error('Cloudflare did not return a valid database ID.');
+  if(subdomain!==canonicalDeployment.subdomain)throw new Error('The Cloudflare account does not match the canonical workers.dev server.');
+  const database=await lookup();
+  if(!database)throw new Error('The existing canonical D1 database is missing. Deployment stopped without creating a replacement.');
+  if(!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(database.uuid||''))throw new Error('Cloudflare did not return a valid database ID.');
   return {databaseId:database.uuid,subdomain};
 }
 
@@ -71,10 +85,8 @@ async function main(){
   if(!/^[a-f0-9]{32}$/i.test(accountId))throw new Error('CLOUDFLARE_ACCOUNT_ID must be the 32-character Account ID, not an API token or Zone ID.');
   await stat(resolve(root,'dist/client/index.html'));
   const config=JSON.parse(await readFile(resolve(root,'wrangler.backend.json'),'utf8'));
-  const target=process.env.BACKEND_TARGET||'production';
-  if(!['production','staging'].includes(target))throw new Error('Unknown backend target.');
-  if(target==='staging'){config.name+='-staging';config.d1_databases[0].database_name+='-staging';config.ratelimits[0].namespace_id='250301';}
-  const {databaseId,subdomain}=await provisionDatabase({accountId,token,name:config.d1_databases[0].database_name});
+  validateDeploymentConfig(config);
+  const {databaseId}=await provisionDatabase({accountId,token,name:config.d1_databases[0].database_name});
   config.account_id=accountId;
   config.main=resolve(root,config.main);config.assets.directory=resolve(root,config.assets.directory);
   config.d1_databases[0].database_id=databaseId;
@@ -86,13 +98,13 @@ async function main(){
     const result=spawnSync(process.execPath,[resolve(root,'node_modules/wrangler/bin/wrangler.js'),...args,'--config',configFile],{cwd:root,stdio:'inherit',env:{...process.env,CI:'true',WRANGLER_SEND_METRICS:'false',WRANGLER_LOG_PATH:resolve(root,'work/backend/wrangler.log')}});
     if(result.error||result.status!==0)throw new Error(`Wrangler ${args[0]} failed. Applied migrations are preserved; rerun after fixing the reported problem.`);
   }
-  const url=`https://${config.name}.${subdomain}.workers.dev`;
+  const url=canonicalDeployment.url;
   let checks,lastError;
   for(let attempt=0;attempt<6;attempt++){
     try{checks=await smokeBackend(url);break;}catch(error){lastError=error;if(attempt<5)await pause(2000);}
   }
   if(!checks)throw lastError;
-  const report={target,url,apiBaseUrl:`${url}/api`,version:VERSION,commit:process.env.GITHUB_SHA||null,checks};
+  const report={service:canonicalDeployment.worker,database:canonicalDeployment.database,url,apiBaseUrl:`${url}/api`,version:VERSION,commit:process.env.GITHUB_SHA||null,checks};
   await writeFile(resolve(root,'work/backend/deployment.json'),JSON.stringify(report,null,2)+'\n');
   if(process.env.GITHUB_STEP_SUMMARY)await appendFile(process.env.GITHUB_STEP_SUMMARY,`## Движение ${VERSION}\n\nСервер: ${url}\n\nАдрес для APK: ${url}/api\n\nHealth, JSON, D1, индивидуальная сессия и выход: проверено.\n`);
   console.log(`Backend ${VERSION} deployed and verified: ${url}`);
