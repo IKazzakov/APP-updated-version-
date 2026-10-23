@@ -1,9 +1,0 @@
-{
-  "operation": "single primary server and main branch",
-  "version": "2.5.4",
-  "canonicalWorker": "movement-test-api-staging",
-  "canonicalDatabase": "movement-test-app-staging",
-  "legacyWorkerToRetire": "movement-test-api",
-  "legacyDatabaseRetained": "movement-test-app",
-  "date": "2026-10-23"
-}
