@@ -1,0 +1,7 @@
+{
+  "target": "staging",
+  "sourceCommit": "28528cbdc9fb125dc21a9f211e9d3b0fa5920f34",
+  "version": "2.5.3",
+  "appId": "com.movement.squat.staging.ui",
+  "requestedOn": "2026-10-23"
+}
