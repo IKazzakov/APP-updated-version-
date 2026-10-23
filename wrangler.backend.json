@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "movement-test-api",
+  "name": "movement-test-api-staging",
   "main": "server/cloudflare.js",
   "compatibility_date": "2026-05-15",
   "workers_dev": true,
@@ -14,7 +14,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "movement-test-app",
+      "database_name": "movement-test-app-staging",
       "database_id": "00000000-0000-4000-8000-000000000000",
       "migrations_dir": "drizzle"
     }
@@ -22,7 +22,7 @@
   "ratelimits": [
     {
       "name": "AUTH_LIMITER",
-      "namespace_id": "250201",
+      "namespace_id": "250301",
       "simple": {
         "limit": 20,
         "period": 60

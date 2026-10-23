@@ -1,9 +1,12 @@
-// A separate package protects the installed 2.5.2 app and its local credentials.
+// Compatibility command for the primary app's existing package and signing key.
 import { readFile, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadStagingSigning } from './staging-signing.mjs';
 // Validate the existing key before changing config or removing a published APK.
+const primaryApi = 'https://movement-test-api-staging.rojoscarlos93.workers.dev/api';
+const api = process.env.VITE_API_BASE_URL || primaryApi;
+if (api !== primaryApi) throw new Error('The primary APK requires its existing primary API.');
 const signing = await loadStagingSigning(fileURLToPath(new URL('..', import.meta.url)));
 const configPath = new URL('../capacitor.config.json', import.meta.url),
   stringsPath = new URL('../android/app/src/main/res/values/strings.xml', import.meta.url);
@@ -12,11 +15,6 @@ const original = await readFile(configPath, 'utf8'),
 const config = JSON.parse(original);
 config.appId = signing.appId;
 config.appName = signing.appName;
-const api =
-  process.env.VITE_API_BASE_URL ||
-  'https://movement-test-api-staging.rojoscarlos93.workers.dev/api';
-if (!/^https:\/\/movement-test-api-staging\.[a-z0-9-]+\.workers\.dev\/api$/.test(api))
-  throw new Error('A staging APK requires the isolated staging API.');
 try {
   await writeFile(configPath, JSON.stringify(config, null, 2) + '\n');
   await writeFile(

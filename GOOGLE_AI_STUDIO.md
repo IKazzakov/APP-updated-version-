@@ -1,6 +1,6 @@
 # Локальная разработка и Google AI Studio
 
-Основные исходники: [rojoscarlos-cpu/APP-updated-version-](https://github.com/rojoscarlos-cpu/APP-updated-version-), `main`, версия 2.5.3. Изменения из редактора сохраняются в отдельную ветку и проходят PR. Слияние и публикация — по прямой команде владельца. Актуальный порядок: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+Основные исходники: [rojoscarlos-cpu/APP-updated-version-](https://github.com/rojoscarlos-cpu/APP-updated-version-), `main`, версия 2.5.4. Изменения из редактора сохраняются в отдельную ветку и проходят PR. Слияние и публикация — по прямой команде владельца. Актуальный порядок: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 ## Предпросмотр
 
@@ -18,10 +18,9 @@ Vite и Node API работают на одном порту; `PORT` по умо
 
 ## Проверки и публикация
 
-Push запускает CI; он не обновляет облачные серверы. APK собирается после успешных проверок в main либо отдельным ручным запуском. Деплой — только **Movement — manual deployment** с явной целью и подтверждением. Секреты нового репозитория настраиваются отдельно: [Cloudflare](docs/CLOUDFLARE_SETUP.md), [Android-подпись](docs/ANDROID_SIGNING.md).
+Push запускает CI; он не обновляет облачные серверы. APK собирается после успешных проверок в main либо отдельным ручным запуском. Деплой — только **Movement — manual deployment** из main с подтверждением `deploy`; цель одна. Секреты нового репозитория настраиваются отдельно: [Cloudflare](docs/CLOUDFLARE_SETUP.md), [Android-подпись](docs/ANDROID_SIGNING.md).
 
-Рабочий API: https://movement-test-api.rojoscarlos93.workers.dev.
-Текущий APK 2.5.3 с пакетом `com.movement.squat.staging.ui` использует staging: https://movement-test-api-staging.rojoscarlos93.workers.dev.
+Единственный основной API: https://movement-test-api-staging.rojoscarlos93.workers.dev. Текущий APK 2.5.4 с пакетом `com.movement.squat.staging.ui` сохраняет этот адрес и прежний профиль.
 Изменения интерфейса установленного приложения требуют новой сборки APK с прежним ключом; публикация сервера сама APK на устройстве не обновляет.
 
 Миграции в `drizzle/` не переписывать. Профиль привязан к сессии устройства и серверу; одинаковые имена не объединяют аккаунты, выход отзывает сессию. Не очищать данные при неподтверждённой очереди.

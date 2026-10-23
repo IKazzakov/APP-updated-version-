@@ -48,7 +48,7 @@ const pose=async(actor,name)=>{await actor.c.request.post(origin+'/__test/pose',
 try{
  await fetch(origin+'/__test/reset',{method:'POST'});
  const a=await actor(),b=await actor(true);
- assert.equal(await b.p.locator('#server-url').inputValue(),'https://movement-test-api.rojoscarlos93.workers.dev/api');
+ assert.equal(await b.p.locator('#server-url').inputValue(),'https://movement-test-api-staging.rojoscarlos93.workers.dev/api');
  const aId=(await state(a.p)).profile.id,bId=(await state(b.p)).profile.id;
  assert.notEqual(aId,bId);assert.equal((await state(a.p)).profile.displayName,(await state(b.p)).profile.displayName);
  results.push('Браузер и APK создают отдельные профили даже с одинаковым именем');

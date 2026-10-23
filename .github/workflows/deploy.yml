@@ -3,13 +3,8 @@ name: Movement — manual deployment
 on:
   workflow_dispatch:
     inputs:
-      target:
-        description: Server to deploy
-        type: choice
-        options: [staging, production]
-        default: staging
       confirmation:
-        description: 'Enter deploy staging or deploy production to confirm this publication'
+        description: 'Enter deploy to publish the canonical server from main'
         type: string
         required: true
 
@@ -17,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: movement-deploy-${{ inputs.target }}
+  group: movement-deploy
   cancel-in-progress: false
 
 jobs:
@@ -26,13 +21,12 @@ jobs:
     steps:
       - name: Check the explicit deployment request
         env:
-          TARGET: ${{ inputs.target }}
           CONFIRMATION: ${{ inputs.confirmation }}
           SOURCE_REF: ${{ github.ref }}
         run: |
-          test "$CONFIRMATION" = "deploy $TARGET" || { echo '::error::Deployment confirmation does not match the selected server.'; exit 1; }
-          if [ "$TARGET" = production ] && [ "$SOURCE_REF" != refs/heads/main ]; then
-            echo '::error::Production must be deployed from main.'
+          test "$CONFIRMATION" = deploy || { echo '::error::Enter deploy to confirm publication.'; exit 1; }
+          if [ "$SOURCE_REF" != refs/heads/main ]; then
+            echo '::error::The canonical server must be deployed from main.'
             exit 1
           fi
   check:
@@ -73,15 +67,12 @@ jobs:
           cp app-debug.apk app-debug.apk.json app-debug.apk.sha256 ../../public/
       - run: npm ci
       - run: npm run build
-      - name: Migrate, deploy and verify the selected server
+      - name: Migrate, deploy and verify the canonical server
         run: npm run backend:deploy
         env:
-          BACKEND_TARGET: ${{ inputs.target }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Verify the published APK
-        env:
-          EXPECTED_TARGET: ${{ inputs.target }}
         run: |
           node --input-type=module <<'JS_APK'
           import assert from 'node:assert/strict';
@@ -89,9 +80,9 @@ jobs:
           import {createHash} from 'node:crypto';
           const deployment = JSON.parse(await readFile('work/backend/deployment.json', 'utf8'));
           const expected = JSON.parse(await readFile('public/app-debug.apk.json', 'utf8'));
-          assert.equal(deployment.target, process.env.EXPECTED_TARGET);
-          const worker = deployment.target === 'staging' ? 'movement-test-api-staging' : 'movement-test-api';
-          assert.match(deployment.url, new RegExp('^https://' + worker + '\\.[a-z0-9-]+\\.workers\\.dev$'));
+          assert.equal(deployment.service, 'movement-test-api-staging');
+          assert.equal(deployment.database, 'movement-test-app-staging');
+          assert.equal(deployment.url, 'https://movement-test-api-staging.rojoscarlos93.workers.dev');
           const url = deployment.url + '/app-debug.apk';
           const query = '?sha256=' + expected.sha256;
           for (let attempt = 0; attempt < 8; attempt++) {
@@ -118,5 +109,5 @@ jobs:
           JS_APK
       - uses: actions/upload-artifact@v4
         with:
-          name: backend-${{ inputs.target }}-${{ github.sha }}
+          name: backend-${{ github.sha }}
           path: work/backend/deployment.json

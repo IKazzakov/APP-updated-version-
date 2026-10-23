@@ -1,7 +1,9 @@
 import {Capacitor, CapacitorHttp} from '@capacitor/core';
 
 const legacyNativeApi = 'https://ais-pre-unwfcvynbcdvpumsvvws2k-220077059769.europe-west2.run.app/api';
-const defaultNativeApi = 'https://movement-test-api.rojoscarlos93.workers.dev/api';
+// Keep the established endpoint so installed profiles and their durable queues
+// retain the same device-secret and storage keys when this becomes the main app.
+const defaultNativeApi = 'https://movement-test-api-staging.rojoscarlos93.workers.dev/api';
 const nativeApi = (import.meta.env?.VITE_API_BASE_URL || defaultNativeApi).replace(/\/+$/, '');
 const SERVER_KEY = 'movement.nativeApi';
 
@@ -38,7 +40,7 @@ export function migrateLegacyApi(){
 }
 export const getApiBaseUrl = (native = isNativeApp()) => native ? currentNativeApi() : '/api';
 export const invitationOrigin = (webOrigin, native = isNativeApp()) => native ? new URL(currentNativeApi()).origin : webOrigin;
-// Existing queues remain on their original server. Switching a test server
+// Existing queues remain on their original server. Switching a custom server
 // must never deliver another server's pending events or round IDs there.
 export const profileStorageId = id => isNativeApp() && currentNativeApi() !== legacyNativeApi ? `${currentNativeApi()}|${id}` : id;
 

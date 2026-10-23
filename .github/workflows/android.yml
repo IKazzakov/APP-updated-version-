@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Restore the persistent test signing key
+      - name: Restore the persistent application signing key
         env:
           STAGING_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAGING_ANDROID_KEYSTORE_BASE64 }}
         run: |
@@ -56,7 +56,7 @@ jobs:
       - run: npm ci
       - name: Install Android build components
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'platform-tools'
-      - name: Build independently installable staging APK
+      - name: Build the compatible application APK
         run: npm run build:apk:staging
         env:
           VITE_API_BASE_URL: https://movement-test-api-staging.rojoscarlos93.workers.dev/api
