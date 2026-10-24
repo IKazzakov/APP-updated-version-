@@ -14,6 +14,7 @@
 2. [TEAM_CONTEXT.md](../TEAM_CONTEXT.md) — порядок работы трёх ролей.
 3. [API.md](../API.md), [DEVELOPMENT.md](../DEVELOPMENT.md) и
    [SINGLE_SERVER.md](../SINGLE_SERVER.md) — контракт, проверки и инфраструктура.
+   Прочитай также [правила раннего завершения](../DUEL_EARLY_STOP.md).
 4. [DATA_MODEL.md](../DATA_MODEL.md), все применимые [SQL-миграции](../../drizzle/)
    и затронутые серверные исходники.
 5. [Клиентские типы API](../../src/shared/contracts/api.ts) и
