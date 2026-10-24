@@ -71,6 +71,8 @@ Push и PR запускают проверки. После успешного pu
 
 ## Документация
 
+- [Старт трёх рабочих чатов: подробные однократные промпты](docs/team/START_PROMPTS.md).
+- [Общий контекст команды](docs/TEAM_CONTEXT.md), [правила агента](AGENTS.md), [модель данных](docs/DATA_MODEL.md).
 - [Один сервер и сохранение данных](docs/SINGLE_SERVER.md).
 - [Рабочий процесс, CI и Android-среда](docs/DEVELOPMENT.md).
 - [Cloudflare и публикация](docs/CLOUDFLARE_SETUP.md).
