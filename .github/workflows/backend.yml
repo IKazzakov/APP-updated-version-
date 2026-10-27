@@ -26,6 +26,7 @@ jobs:
     needs: check
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/codex/rc-2.6.1-20261027') ||
       (github.event_name == 'workflow_dispatch' && inputs.build_apk)
     uses: ./.github/workflows/android.yml
     secrets:

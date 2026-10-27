@@ -47,7 +47,11 @@ export function createWorkoutTraining(
     },
     chooseMode(...args: Parameters<typeof legacy.chooseMode>) {
       if (ctx.workouts.unfinished) {
-        ctx.showError('Сначала продолжите или завершите программу.');
+        ctx.showError(
+          ctx.workouts.record?.pendingEnd
+            ? 'Завершение программы ожидает подтверждения. Повторите сохранение.'
+            : 'Сначала продолжите или завершите программу.',
+        );
         return;
       }
       runner.pause();

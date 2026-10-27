@@ -233,3 +233,41 @@ test('event arriving between finalization read and update cannot become a post-f
   assert.equal(f.db.sqlite.prepare('SELECT status FROM workout_sessions WHERE id=?').get(workout.id).status,'active');
   const done=await f.end(workout,'abort');assert.equal(done.status,200);assert.deepEqual(done.data.workout.stepProgress,[2]);assert.equal(done.data.progress.totalXp,2);
 });
+
+for(const count of [0,2])test(`recovery of ${count} confirmed reps: replay sync/abort releases active lock without losing XP`,async t=>{
+ const f=fixture(t);await f.profile();const workout=f.identity();
+ const start=await f.sync(workout,[]);assert.equal(start.status,200);
+ const events=f.reps(count);assert.equal((await f.sync(workout,events)).data.accepted,count);
+ assert.equal((await f.sync(f.identity())).data.error.code,'ACTIVE_WORKOUT');
+ const ended=await f.end(workout,'abort');assert.equal(ended.status,200);assert.equal(ended.data.workout.status,'aborted');
+ const replay=await f.sync(workout,events);assert.equal(replay.data.accepted,0);assert.equal(replay.data.duplicate,count);
+ const again=await f.end(workout,'abort');assert.deepEqual(again.data.workout,ended.data.workout);
+ assert.equal(again.data.progress.totalXp,count);assert.equal((await f.end(workout)).data.error.code,'WORKOUT_CLOSED');
+ assert.equal((await f.sync(f.identity('pushups-5-v1'))).status,200);
+ assert.equal((await f.call('state')).data.rounds.length,0);
+ assert.equal((await f.call('v2/dashboard')).data.stats.record,null);
+ assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) n FROM rounds').get().n,0);
+ assert.equal(f.db.sqlite.prepare('SELECT COUNT(*) n FROM weekly_best').get().n,0);
+});
+
+test('public device Worker routes empty/partial sync, replay and abort before accepting the next programme',async t=>{
+ const f=fixture(t);await f.profile();const secret='c'.repeat(64);
+ const hash=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(secret))).toString('hex');
+ f.db.sqlite.prepare('INSERT INTO device_sessions VALUES(?,?,?,NULL)').run(hash,'alice',f.now);
+ const call=async(path,body,origin='https://test.example')=>{
+  const response=await worker.fetch(new Request('https://test.example/api/v2/'+path,{method:'POST',headers:{Authorization:'Bearer '+secret,Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)}),{DB:f.db});
+  return {status:response.status,data:await response.json()};
+ };
+ for(const count of [0,2]){
+  const workout=f.identity(),events=f.reps(count),input={workout,events:[]};
+  assert.equal((await call('workouts/sync',input,'https://wrong.example')).status,403);
+  assert.equal((await call('workouts/sync',input)).status,200);
+  assert.equal((await call('workouts/sync',{workout,events})).data.accepted,count);
+  const end={endedAt:f.now,activeMs:0},path=`workouts/${workout.id}/abort`;
+  const done=await call(path,end);assert.equal(done.status,200);assert.equal(done.data.workout.status,'aborted');
+  assert.deepEqual((await call(path,end)).data.workout,done.data.workout);
+  assert.equal((await call('workouts/sync',{workout,events})).data.accepted,0);
+ }
+ assert.equal((await call('workouts/sync',{workout:f.identity('pushups-5-v1'),events:[]})).status,200);
+ assert.equal((await f.progress()).totalXp,2);
+});

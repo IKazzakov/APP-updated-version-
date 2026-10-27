@@ -213,6 +213,8 @@ export function createWorkoutRunner(
       if (attempt !== generation || epoch !== ctx.session.store.epoch) return;
       await service.connect();
       if (attempt !== generation || epoch !== ctx.session.store.epoch) return;
+      await service.ensureSupported();
+      if (attempt !== generation || epoch !== ctx.session.store.epoch) return;
       if (!current() || current()!.status !== 'active') {
         if (!selected) throw new Error('Выберите программу на экране «Сегодня».');
         await service.start(selected.id);
@@ -454,14 +456,16 @@ export function createWorkoutRunner(
     }
     if (
       ['starting', 'running', 'rest', 'preparing', 'countdown'].includes(stage) &&
-      (service.persistenceFailed || service.authorizationRequired)
+      (service.persistenceFailed || service.authorizationRequired || service.apiUnavailable)
     ) {
       pause(
-        service.authorizationRequired
-          ? 'Сессия завершилась. Войдите снова; локальные данные сохранены.'
-          : service.conflicted
-            ? 'Сохранение изменилось в другой вкладке. Учёт остановлен; продолжите с сохранённого состояния.'
-            : 'Не удалось сохранить данные на устройстве. Учёт остановлен; освободите место и повторите сохранение.',
+        service.apiUnavailable
+          ? errorMessage(service.availabilityError)
+          : service.authorizationRequired
+            ? 'Сессия завершилась. Войдите снова; локальные данные сохранены.'
+            : service.conflicted
+              ? 'Сохранение изменилось в другой вкладке. Учёт остановлен; продолжите с сохранённого состояния.'
+              : 'Не удалось сохранить данные на устройстве. Учёт остановлен; освободите место и повторите сохранение.',
       );
     }
     const record = current();
@@ -491,7 +495,11 @@ export function createWorkoutRunner(
             ? `${(count / 1000).toFixed(1)} / ${step.target / 1000} с`
             : `${count} / ${step.target}`
           : '✓';
-    query('hint').textContent = hint;
+    query('hint').textContent = record?.pendingEnd
+      ? 'Завершение ожидает подтверждения.'
+      : service.expired && record?.status === 'active'
+        ? 'Продолжение недоступно. Сохраните частичный итог.'
+        : hint;
     query('next').textContent =
       index >= 0 && all[index + 1]
         ? `Далее: ${stepLabel(all[index + 1])}`
@@ -509,7 +517,11 @@ export function createWorkoutRunner(
       'ended',
     ].includes(stage);
     query<HTMLButtonElement>('start').disabled =
-      !selected || !ctx.session.state?.profile || service.expired || service.authorizationRequired;
+      !selected ||
+      !ctx.session.state?.profile ||
+      service.expired ||
+      service.authorizationRequired ||
+      service.apiUnavailable;
     query('start').textContent = record ? 'Продолжить' : 'Начать';
     query('pause').hidden = !['running', 'rest', 'starting', 'preparing', 'countdown'].includes(
       stage,
@@ -517,17 +529,20 @@ export function createWorkoutRunner(
     query('rest-skip').hidden = stage !== 'rest';
     query('stop').hidden = !record || record.status !== 'active' || !!record.pendingEnd;
     query<HTMLButtonElement>('stop').disabled = writing || stage === 'starting';
-    query('retry').hidden = !record?.pendingEnd && !service.error;
+    query('retry').hidden = service.apiUnavailable || (!record?.pendingEnd && !service.error);
     query<HTMLButtonElement>('retry').disabled = service.saving;
+    query('check').hidden = !service.apiUnavailable && !service.availabilityError;
+    query<HTMLButtonElement>('check').disabled = service.apiState === 'checking' || service.saving;
     const pending = record?.events.length ?? 0;
     query('status').textContent =
+      (service.apiUnavailable ? errorMessage(service.availabilityError) : '') ||
       error ||
-      (service.expired && record?.status === 'active'
-        ? '24 часа истекли. Доступно сохранение частичного итога.'
-        : record?.pendingEnd
-          ? 'Итог ожидает подтверждения. Данные остаются на этом устройстве.'
-          : service.error
-            ? 'Есть неподтверждённые данные. Проверьте связь и повторите сохранение.'
+      (record?.pendingEnd
+        ? 'Завершение ожидает подтверждения. Программа прекращена на устройстве; повторите сохранение после восстановления связи.'
+        : service.expired && record?.status === 'active'
+          ? '24 часа истекли. Доступно сохранение частичного итога.'
+          : service.error || service.availabilityError
+            ? errorMessage(service.error || service.availabilityError)
             : pending || service.saving
               ? `Сохраняем упражнения${pending ? `: ${pending}` : ''}…`
               : record
@@ -554,18 +569,23 @@ export function createWorkoutRunner(
     prepareExercise();
   };
   query('stop').onclick = () => void finish('abort');
-  query('retry').onclick = async () => {
+  const retry = async () => {
+    const epoch = ctx.session.store.epoch;
     try {
       await service.connect();
-      await service.sync();
+      await service.retry();
+      if (epoch !== ctx.session.store.epoch) return;
       error = '';
       if (!current()) stage = 'idle';
       else if (current()?.status !== 'active') stage = 'ended';
-    } catch {
-      error = 'Нет подтверждения. Повторите отправку после восстановления связи.';
+    } catch (failure) {
+      if (epoch !== ctx.session.store.epoch) return;
+      error = errorMessage(failure);
     }
     render();
   };
+  query('retry').onclick = () => void retry();
+  query('check').onclick = () => void retry();
   query('back').onclick = () => ctx.navigate('today');
   return {
     render,

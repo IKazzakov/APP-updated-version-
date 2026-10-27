@@ -1,4 +1,4 @@
-export const VERSION = '2.6.0';
+export const VERSION = '2.6.1';
 export const VISION_VERSION = '0.10.32';
 export const RULES_VERSION = 'squat-v1';
 export const MODELS = Object.freeze({

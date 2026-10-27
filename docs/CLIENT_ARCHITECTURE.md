@@ -1,5 +1,43 @@
 # Клиент приложения — 2.5.4
 
+## Восстановление программ и диагностика сборки · MOV-BUG-FE-01
+
+WorkoutsService отдельно хранит готовность API (`unknown/checking/ready/unsupported`),
+ошибку проверки GET (`availabilityError`) и ошибку доставки/завершения (`error`).
+Перед созданием новой онлайн-записи проверяются catalog и activity через существующие
+runtime-парсеры. Проверка объединяется для текущих API/profile/epoch; упакованный
+каталог сам по себе не доказывает готовность сервера. NETWORK/TIMEOUT, auth/profile,
+ошибочный JSON и WORKOUT_NOT_FOUND не превращаются в отсутствие всех маршрутов.
+
+Ожидаемый маршрутный 404 NOT_FOUND/API_NOT_FOUND инвалидирует готовность. Навигация,
+load и фоновые refresh не повторяют POST при известной несовместимости. Явный
+«Проверить снова» выполняет GET и затем доставляет прежний журнал. Успешный refresh
+ActivityProgress не стирает ошибку неподтверждённого завершения.
+
+Active без pendingEnd предлагает продолжение до 24 часов либо частичный итог;
+pendingEnd означает прекращённую локально работу и ожидание подтверждения, без
+возобновления камеры. До ack другой запуск блокируется с явной причиной. После
+подтверждённого abort/completed другая программа выбирается без reload. Запись,
+её UUID, события и pendingEnd не удаляются для обхода 404; CAS/epoch и ack-before-end
+сохраняются. Формат и scope IndexedDB/offline-снимка не меняются.
+
+Локальные метаданные собирает scripts/build.mjs из фактических Git HEAD/status,
+package.json и VERSION: version, Android versionCode, полный sourceSha и dirty.
+Vite встраивает один snapshot в CLIENT_BUILD и build-metadata.json. Для подписанного
+APK snapshot снимается до временных правок config/strings/старого APK, передаётся
+дочерним сборкам и используется также в app-debug.apk.json. Неизвестный SHA,
+грязные исходники, устаревший snapshot и несовпадение версии останавливают выпуск.
+Штатная APK-проверка сверяет versionCode с aapt и snapshot с упакованным asset.
+Dev без Git явно сообщает sourceSha:null/dirty:null.
+
+Diagnostics сохраняет прежние version и squat-support-v1, добавляя build и отдельное
+apiBaseUrl. Адрес синхронно берётся из текущего getApiBaseUrl при формировании отчёта:
+только http(s) origin+pathname, без credentials/query/hash; небезопасное значение null.
+Clipboard и ручной textarea используют один reportText до камеры/входа и offline;
+очистка журнала не удаляет build-данные. Это сведения клиента, а не утверждение
+о версии/готовности сервера. ActivityLog хранит только фиксированные workout-маршруты,
+действия и error-коды, без UUID, query, тел запросов и сырых URL.
+
 Основной репозиторий — `APP-updated-version-`, ветка `main`, проверенный выпуск на момент этого описания — 2.5.4. Перед новой задачей сверяйте актуальные `package.json`, `src/config.js`, ветку и SHA. Модульный клиент реализован на базе 93721f8 и перенесён в основной проект в составе d0c2f384. Общая инструкция команды: [TEAM_CONTEXT.md](TEAM_CONTEXT.md); роль frontend: [team/FRONTEND.md](team/FRONTEND.md). Актуальный процесс разработки и CI: [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ## Устройство приложения
