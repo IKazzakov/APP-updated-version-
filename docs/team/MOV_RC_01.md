@@ -4,6 +4,9 @@
 Статус: код Backend проверен Тимлидом; передача его архивного артефакта не подтверждена.
 Frontend можно передавать пакет; результат Frontend ещё не получен.
 
+Общий реестр и формат передачи: [HANDOFF.md](HANDOFF.md). Подготовлен отдельный
+MOV-HANDOFF-BE-01 для CI-артефакта Worker; он не блокирует MOV-RC-FE-01.
+
 ## Приёмка Backend — 27 октября 2026 года
 
 - Получен [PR №8](https://github.com/rojoscarlos-cpu/APP-updated-version-/pull/8)
