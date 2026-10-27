@@ -56,7 +56,7 @@ export async function smokeBackend(origin,request=fetch){
   async function call(path,{method='GET',body,secret}={}){
     const response=await request(`${origin}/api/${path}`,{method,redirect:'error',signal:AbortSignal.timeout(20000),headers:{Accept:'application/json',...(method==='POST'?{'Content-Type':'application/json',Origin:origin}:{}),...(secret?{Authorization:`Bearer ${secret}`}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
     let data;try{data=await response.json();}catch{throw new Error('Published API returned HTML instead of JSON.');}
-    return {status:response.status,data};
+    return {status:response.status,data,headers:response.headers};
   }
   const health=await call('health');
   if(health.status!==200||health.data.version!==VERSION||health.data.authentication!=='device-token')throw new Error('Published health/version/authentication check failed.');
@@ -72,10 +72,19 @@ export async function smokeBackend(origin,request=fetch){
     if(compact.status!==200||compact.data.profile!==null||!Array.isArray(compact.data.rounds))throw new Error('Compact API/D1 migration check failed.');
     const state=await call('state',{secret});
     if(state.status!==200||state.data.profile!==null||!Number.isFinite(state.data.serverNow))throw new Error('Authenticated D1 state check failed.');
+    // Probe the real v2 routes without creating a profile or awarding activity.
+    // An old Worker can reject anonymous requests while still lacking the route.
+    for(const path of ['v2/workouts/catalog','v2/activity','v2/workouts/history?limit=1']){
+      const anonymous=await call(path);
+      if(anonymous.status!==401||anonymous.data?.error?.code!=='DEVICE_AUTH_REQUIRED'||!/^application\/json(?:\s*;|$)/i.test(anonymous.headers.get('content-type')||''))throw new Error(`Workout route authentication check failed: ${path}`);
+      const guest=await call(path,{secret});
+      const cache=(guest.headers.get('cache-control')||'').toLowerCase().split(',').map(value=>value.trim());
+      if(guest.status!==409||guest.data?.error?.code!=='PROFILE_REQUIRED'||!/^application\/json(?:\s*;|$)/i.test(guest.headers.get('content-type')||'')||!cache.includes('private')||!cache.includes('no-store'))throw new Error(`Workout route profile/JSON/cache check failed: ${path}`);
+    }
   }finally{
     if(registered){const logout=await call('auth/logout',{method:'POST',body:{},secret});if(logout.status!==200)throw new Error('Smoke session could not be revoked.');}
   }
-  return {health:true,anonymousRejected:true,guestState:true,logout:true};
+  return {health:true,anonymousRejected:true,guestState:true,logout:true,workoutRouteGuards:true};
 }
 
 async function main(){

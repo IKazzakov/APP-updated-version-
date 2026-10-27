@@ -58,8 +58,76 @@ test('deployment stops for ambiguous databases or an account outside the canonic
 });
 test('post-deployment smoke proves JSON, auth and DB writes without adding sample profiles',async t=>{
  const DB=createTestDatabase();t.after(()=>DB.close());
- const request=(url,options)=>worker.fetch(new Request(url,options),{DB});
- const result=await smokeBackend('https://worker.test',request);assert.equal(result.guestState,true);
- assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS n FROM profiles').get().n,0);
- assert.equal(DB.sqlite.prepare('SELECT COUNT(*) AS n FROM device_sessions WHERE revoked_at IS NULL').get().n,0);
+ const guards=[];
+ const request=(url,options)=>{
+  if(workoutRoutes.includes(new URL(url).pathname+new URL(url).search)){
+   assert.equal(options.method,'GET');assert.equal(options.headers.Accept,'application/json');
+   guards.push({path:new URL(url).pathname+new URL(url).search,authenticated:!!options.headers.Authorization});
+  }
+  return worker.fetch(new Request(url,options),{DB});
+ };
+ const result=await smokeBackend('https://worker.test',request);
+ assert.deepEqual(result,{health:true,anonymousRejected:true,guestState:true,logout:true,workoutRouteGuards:true});
+ assert.deepEqual(guards,workoutRoutes.flatMap(path=>[{path,authenticated:false},{path,authenticated:true}]));
+ assertSmokeData(DB);
+});
+
+const workoutRoutes=['/api/v2/workouts/catalog','/api/v2/activity','/api/v2/workouts/history?limit=1'];
+function assertSmokeData(DB){
+ for(const table of ['profiles','workout_sessions','workout_steps','workout_events','activity_events','activity_event_parts','activity_days','activity_totals','repetition_events','daily_progress','daily_rewards','weekly_bonuses']){
+  assert.equal(DB.sqlite.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n,0,table);
+ }
+ assert.equal(DB.sqlite.prepare('SELECT COUNT(*) n FROM device_sessions').get().n,1);
+ assert.equal(DB.sqlite.prepare('SELECT COUNT(*) n FROM device_sessions WHERE revoked_at IS NULL').get().n,0);
+}
+
+test('release smoke rejects broken programme guards on every route and revokes its session',async t=>{
+ for(const path of workoutRoutes)for(const authenticated of [false,true]){
+  const expectedStatus=authenticated?409:401,code=authenticated?'PROFILE_REQUIRED':'DEVICE_AUTH_REQUIRED';
+  const json=(data,status=expectedStatus,headers={})=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json','cache-control':'private, no-store',...headers}});
+  const faults=[
+   ['HTML',()=>new Response('<!doctype html><title>App</title>',{status:200,headers:{'content-type':'text/html'}})],
+   ['malformed JSON',()=>new Response('{broken',{status:expectedStatus,headers:{'content-type':'application/json'}})],
+   ['wrong MIME type',()=>json({error:{code}},expectedStatus,{'content-type':'text/html'})],
+   ['missing MIME type',()=>{const response=json({error:{code}});response.headers.delete('content-type');return response;}],
+   ['unexpected 200',()=>json({error:{code}},200)],
+   ['unexpected 201',()=>json({error:{code}},201)],
+   ['missing route',()=>json({error:{code:'NOT_FOUND'}},404)],
+   ['server error',()=>json({error:{code:'SERVER_ERROR'}},500)],
+   ['wrong guard status',()=>json({error:{code}},authenticated?401:409)],
+   ['wrong error code',()=>json({error:{code:'ANOTHER_ERROR'}})],
+   ['wrong JSON shape',()=>json(null)],
+   ['transport failure',()=>{throw new Error('Simulated transport failure');}],
+  ];
+  if(authenticated)faults.push(
+   ['missing cache policy',()=>json({error:{code}},409,{'cache-control':''})],
+   ['public cache policy',()=>json({error:{code}},409,{'cache-control':'public, no-store'})],
+   ['storable private response',()=>json({error:{code}},409,{'cache-control':'private, max-age=60'})],
+  );
+  for(const [name,fault] of faults)await t.test(`${path} ${authenticated?'guest':'anonymous'}: ${name}`,async t=>{
+   const DB=createTestDatabase();t.after(()=>DB.close());let injected=0,logout=0;
+   const request=(url,options)=>{
+    const route=new URL(url).pathname+new URL(url).search;
+    if(route==='/api/auth/logout')logout++;
+    if(route===path&&!!options.headers.Authorization===authenticated){injected++;return fault();}
+    return worker.fetch(new Request(url,options),{DB});
+   };
+   await assert.rejects(smokeBackend('https://worker.test',request));
+   assert.equal(injected,1);assert.equal(logout,1);assertSmokeData(DB);
+  });
+ }
+});
+
+test('release smoke rejects an old Worker even though anonymous route auth still works',async t=>{
+ const DB=createTestDatabase();t.after(()=>DB.close());const authenticated=[];
+ const request=(url,options)=>{
+  const route=new URL(url).pathname+new URL(url).search;
+  if(workoutRoutes.includes(route)&&options.headers.Authorization){
+   authenticated.push(route);
+   return worker.fetch(new Request(url.replace('/api/v2/','/api/'),options),{DB});
+  }
+  return worker.fetch(new Request(url,options),{DB});
+ };
+ await assert.rejects(smokeBackend('https://worker.test',request),/Workout route/);
+ assert.deepEqual(authenticated,[workoutRoutes[0]]);assertSmokeData(DB);
 });

@@ -2,10 +2,30 @@
 
 Дата постановки: 27 октября 2026 года. Ответственный за контракт и интеграцию: Тимлид.
 Статус: код Backend проверен Тимлидом; передача его архивного артефакта не подтверждена.
-Frontend можно передавать пакет; результат Frontend ещё не получен.
+Frontend сдал подписанный предварительный кандидат; APK получен и проверен Тимлидом.
+Подготовлена общая интеграционная ветка; её APK нужно собрать отдельно.
 
 Общий реестр и формат передачи: [HANDOFF.md](HANDOFF.md). Подготовлен отдельный
 MOV-HANDOFF-BE-01 для CI-артефакта Worker; он не блокирует MOV-RC-FE-01.
+
+## Приёмка Frontend — 27 октября 2026 года
+
+- Получен [PR №9](https://github.com/rojoscarlos-cpu/APP-updated-version-/pull/9),
+  head cec8fb179a8dc0bfc078064ac30b0ab94d7f50e3. Реальный source SHA APK —
+  053595dab0afb13b4cbf278c1cc75bebc703ed15; последующий commit добавляет только отчёт.
+- Проверены четыре изменённых файла: только версия и отчёт. Общие контракты,
+  зависимости, платформа, алгоритмы и старые public APK не изменены.
+- [Artifact 12741695949](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40518798548/artifacts/12741695949)
+  скачан через GitHub. SHA-256 ZIP/APK, размеры, JSON/checksum и бинарный manifest
+  совпали с отчётом. В APK подтверждены package, versionName 2.6.0, versionCode 20600,
+  открытый сертификат v2-signer, права, локальные Full/WASM/worker и API-base.
+- Штатные checks и Android job [run 40518798548](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40518798548)
+  успешны; подпись проверена apksigner в CI. Тимлид извлёк и сверил сертификат из
+  APK, но не запускал локальный apksigner: SDK в его среде не установлен.
+- Все 18 физических сценариев NOT_RUN. Кандидат FE принят как предварительный
+  артефакт своей ветки; это не комплект общего SHA и не разрешение на выпуск.
+- Объединение и следующие действия зафиксированы в
+  [MOV_RC_INTEGRATION_01.md](../reviews/MOV_RC_INTEGRATION_01.md).
 
 ## Приёмка Backend — 27 октября 2026 года
 

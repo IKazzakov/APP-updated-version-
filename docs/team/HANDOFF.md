@@ -82,7 +82,8 @@ Actions artifacts имеют ограниченный срок хранения:
 | --- | --- | --- |
 | MOV-MVP-01 | [PR №6](https://github.com/rojoscarlos-cpu/APP-updated-version-/pull/6), c4131161b82066bba3c83901b8c6984aa0b47eaf; [отчёт](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/c4131161b82066bba3c83901b8c6984aa0b47eaf/docs/reviews/MOV_MVP_01.md) | Реализация и текстовые данные доступны; ещё не слито/не выпущено |
 | MOV-RC-BE-01 | [PR №8](https://github.com/rojoscarlos-cpu/APP-updated-version-/pull/8), e4f552f10921a2816200b8eb9c035a24734d9328; [отчёт](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/e4f552f10921a2816200b8eb9c035a24734d9328/docs/releases/MOV-RC-01-backend.md) | Код проверен Тимлидом, повторно 90/90 PASS; архив указан локальным путём другой среды, не получен |
-| MOV-RC-FE-01 | [Полный пакет](MOV_RC_01.md), база c413116; кандидат 2.6.0/20600 | Результат/PR/ссылка на APK ещё не получены; подготовка может продолжаться |
+| MOV-RC-FE-01 | [PR №9](https://github.com/rojoscarlos-cpu/APP-updated-version-/pull/9), head cec8fb1; [APK artifact](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40518798548/artifacts/12741695949), source 053595dab0afb13b4cbf278c1cc75bebc703ed15 | APK 2.6.0/20600 получен и проверен Тимлидом; expires_at 2027-01-25T14:11:51Z; физические 18 сценариев NOT_RUN |
+| MOV-RC-INTEGRATION-01 / BUILD-02 | [Интеграция и пакет пересборки](../reviews/MOV_RC_INTEGRATION_01.md), ветка codex/rc-integration-20261027 | BE + FE + документы объединены; локальные 374 PASS / 1 SKIP и build/dry-run успешны; общий APK ещё не собран |
 | MOV-HANDOFF-BE-01 | Пакет ниже, база e4f552f | Задание на CI-передачу Worker подготовлено, выполнение не утверждается |
 
 Этот реестр — снимок, не постоянное закрепление SHA. Перед новой задачей сверять

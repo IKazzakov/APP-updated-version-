@@ -5,6 +5,7 @@ import { RULES_VERSION } from '../../config.js';
 import { comparableRounds } from '../../progress.js';
 import { summaryHTML, periodLabel } from '../../shared/weekly.ts';
 import { bindSummaryActions } from '../../shared/summary-actions.ts';
+import { renderWorkoutHistory } from '../workouts/overview.ts';
 export function createProgress(root: HTMLElement, ctx: FeatureContext) {
   const { get: $, text } = dom(root),
     { session } = ctx;
@@ -93,6 +94,7 @@ export function createProgress(root: HTMLElement, ctx: FeatureContext) {
     </svg>`;
   }
   function update() {
+    renderWorkoutHistory(root, ctx);
     render();
     const summaries = session.state?.weekly?.summaries || [];
     $('weekly-history').innerHTML = summaries.length
@@ -122,10 +124,13 @@ export function createProgress(root: HTMLElement, ctx: FeatureContext) {
   }
   $('history-more').onclick = () => void session.loadHistory('rounds', { more: true });
   $('weeks-more').onclick = () => void session.loadHistory('weeks', { more: true });
+  root.querySelector<HTMLButtonElement>('[data-workout-history-more]')!.onclick = () =>
+    void ctx.workouts.loadHistory(true);
   return {
     root,
     render: update,
     activate: () => {
+      void ctx.workouts.loadHistory();
       void session.loadHistory('rounds');
       void session.loadHistory('weeks');
     },

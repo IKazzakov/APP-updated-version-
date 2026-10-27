@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 const groups = [
   { mode: 'cookie', suites: ['mvp', 'auto-start', 'weekly', 'rating-fixes', 'native-start'] },
-  { mode: 'device', suites: ['backend', 'diagnostics', 'architecture'] },
+  { mode: 'device', suites: ['backend', 'diagnostics', 'architecture', 'workouts'] },
 ];
 const port = Number(process.env.TESTSERVERPORT || 4185),
   origin = `http://127.0.0.1:${port}`;
