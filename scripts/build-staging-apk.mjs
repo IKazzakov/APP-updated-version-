@@ -4,7 +4,10 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { loadStagingSigning } from './staging-signing.mjs';
 import { buildMetadata } from './build.mjs';
-const metadata = buildMetadata(fileURLToPath(new URL('..', import.meta.url)), { release: true });
+const metadata = buildMetadata(fileURLToPath(new URL('..', import.meta.url)), {
+  release: true,
+  inherited: null,
+});
 // Validate the existing key before changing config or removing a published APK.
 const primaryApi = 'https://movement-test-api-staging.rojoscarlos93.workers.dev/api';
 const api = process.env.VITE_API_BASE_URL || primaryApi;
