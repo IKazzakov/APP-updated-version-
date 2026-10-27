@@ -4,6 +4,7 @@ import competitions from '../features/competitions/template.html?raw';
 import progress from '../features/progress/template.html?raw';
 import { createToday } from '../features/today/view.ts';
 import { createTraining } from '../features/training/controller.ts';
+import { createWorkoutTraining } from '../features/workouts/integration.ts';
 import { createCompetitions } from '../features/competitions/controller.ts';
 import { createProgress } from '../features/progress/view.ts';
 import { dom, escape } from '../shared/dom.ts';
@@ -28,7 +29,9 @@ export const screens = {
     icon: '<svg class="arrow-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     html: training,
     create: (root: HTMLElement, ctx: FeatureContext, services: ScreenServices) =>
-      createTraining(root, ctx, services.diagnostics, { getError: services.getError }),
+      createWorkoutTraining(root, ctx, () =>
+        createTraining(root, ctx, services.diagnostics, { getError: services.getError }),
+      ),
   },
   competitions: {
     label: 'Соревнования',

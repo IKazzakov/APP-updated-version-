@@ -38,6 +38,17 @@ test('identity import preserves current progress and revoked sessions, and is id
   validateIdentityImport(source,f.snap(f.old),after,f.snap(f.current),again);
 });
 
+test('identity validation allows only the zero activity row created by the new profile trigger',t=>{
+  const f=fixture(t),source=f.snap(f.old),before=f.snap(f.current),plan=planIdentityImport(source,before);
+  for(const statement of plan.statements)f.execute(statement);
+  const after=f.snap(f.current);
+  assert.deepEqual({...f.current.prepare('SELECT * FROM activity_totals WHERE user_id=?').get('legacy_profile')},{user_id:'legacy_profile',total_xp:0,revision:0});
+  validateIdentityImport(source,f.snap(f.old),before,after,plan);
+  const invalid=structuredClone(after);
+  invalid.tables.activity_totals.find(row=>row.user_id==='legacy_profile').total_xp=1;
+  assert.throws(()=>validateIdentityImport(source,f.snap(f.old),before,invalid,plan),/Canonical existing data changed/);
+});
+
 test('partial imports resume safely without replacing profiles or creating another session',t=>{
   const f=fixture(t),source=f.snap(f.old),first=planIdentityImport(source,f.snap(f.current));
   f.execute(first.statements[0]);f.execute(first.statements[1]);

@@ -23,8 +23,8 @@ Runtime ORM нет. Сервер выполняет параметризован
 [`node:sqlite`-адаптер](../server/sqlite.js). Порядок применения и неизменяемость
 миграций описаны в [db/README.md](../db/README.md).
 
-Набор миграций `0000`–`0004` создаёт 18 прикладных таблиц, 14 явных индексов и
-14 триггеров; служебные таблицы migrator в эти числа не входят. После новой
+Набор миграций `0000`–`0005` создаёт 26 прикладных таблиц, 18 явных индексов и
+25 триггеров; служебные таблицы migrator в эти числа не входят. После новой
 миграции пересверь эти сведения по исходникам:
 
 | Миграция | Изменения |
@@ -34,6 +34,7 @@ Runtime ORM нет. Сервер выполняет параметризован
 | [0002_ranking_defaults_duel_cancel.sql](../drizzle/0002_ranking_defaults_duel_cancel.sql) | Действующий `rankings_excluded`, отмена приглашений `cancelled_at` |
 | [0003_device_sessions.sql](../drizzle/0003_device_sessions.sql) | Индивидуальные сессии устройства |
 | [0004_server_optimization.sql](../drizzle/0004_server_optimization.sql) | Агрегаты и их backfill, история согласия, очередь пересчёта, курсор сводок, дополнительные индексы и триггеры |
+| [0005_workouts_activity.sql](../drizzle/0005_workouts_activity.sql) | Программы, события упражнений, независимый XP, активация и защита конкурентной записи |
 
 ## Единицы и ограничения
 
@@ -184,3 +185,59 @@ migrator, FK и CHECK, backfill, сохранность строк и откат
 обязанности backend — [team/BACKEND.md](team/BACKEND.md). Remote-миграции и
 публикация требуют прямой команды владельца; локальные проверки используют
 изолированные данные.
+
+
+## Программы и активность · миграция 0005
+
+[0005_workouts_activity.sql](../drizzle/0005_workouts_activity.sql) добавляет
+8 таблиц, 4 явных индекса и 11 триггеров. Итог 0000–0005:
+26 прикладных таблиц, 18 явных индексов и 25 триггеров.
+Служебная movement_migrations в эти числа не включена.
+Прежние миграции и существующие строки не изменяются.
+
+| Таблица | Ключи и назначение |
+| --- | --- |
+| activity_settings | Единственная строка id=1 с activated_at. Время активации создаётся миграцией и сохраняется при повторном открытии БД |
+| workout_sessions | PK id, владелец-профиль, program_id/version/rules_version, зафиксированный program_json, started/finished timestamp, active/completed/aborted и active_ms |
+| workout_steps | PK (workout_id,step_index), упражнение, target и progress; FK выполнения и CHECK 0<=progress<=target |
+| workout_events | PK (user_id,id COLLATE NOCASE), FK (workout_id,step_index), occurred_at и nullable duration_ms; авторитетные события программы |
+| activity_events | PK (user_id,id COLLATE NOCASE), упражнение, время, длительность удержания и received_at; общий факт активности legacy/program |
+| activity_event_parts | PK (user_id,event_id COLLATE NOCASE,local_date), FK факта; фактический объём и отдельно объём, допустимый для XP после activated_at |
+| activity_days | PK (user_id,local_date), накопленные squats/pushups/plank_ms, допустимый XP-объём и дневной XP |
+| activity_totals | PK user_id с FK профиля, total_xp и revision; новый баланс отдельно от прежнего user_totals.points |
+
+Удержание планки длительностью 1–1000 мс разбивается на части в календарных
+днях профиля; разделение учитывает полночь, IANA timezone и границу активации.
+XP дня = MIN(300,xp_squats+xp_pushups+floor(xp_plank_ms/5000)).
+Округление выполняется после накопления времени; паузы и пропуски кадров не
+поступают в журнал как корректное время.
+
+workout_event_guard защищает порядок подходов, предел цели, закрытое выполнение
+и повтор UUID с изменёнными данными. activity_event_guard исключает конфликт
+факта и перекрывающиеся plank-интервалы. UUID сопоставляются без различия регистра.
+Старт программы/минуты проверяется SQL-триггерами, включая конкурентные запросы.
+Пакет событий, прогресс, части активности и legacy-mirror сохраняются одной batch.
+
+Программное приседание зеркалируется в repetition_events с тем же UUID;
+новые отжимания/планка не маскируются под приседания. Триггер старого события
+тоже создаёт общий факт активности. Части и UUID обеспечивают однократный XP
+независимо от пути доставки. Начисления до activated_at не возникают.
+
+Исторические daily_progress не копируются в новый XP-журнал: readActivity
+объединяет прежние подтверждённые дни и новую активность для непрерывной серии.
+Первоначальный activity_totals содержит по нулевой строке существующего профиля.
+Новый профиль получает нулевую строку через activity_profile_insert.
+Проверка исторического ограниченного импорта учитывает только такую добавочную
+нулевую строку; сам перенос этой задачей повторно не запускается.
+
+activity_totals.revision вместе с user_totals.revision формирует монотонную
+ревизию ActivityProgress. При одинаковой ревизии клиент сравнивает serverNow.
+Таблицы daily/totals являются производными; события, их части и зафиксированные
+цели сохраняются источником расчётов. Произвольные UPDATE/DELETE для пересчёта
+не поддерживаются без отдельного спроектированного исправления.
+
+Новые API и ошибки описаны в [API.md](API.md), продуктовые решения —
+[WORKOUT_RULES_V0_1.md](product/WORKOUT_RULES_V0_1.md).
+Проверки чистой БД, upgrade с данными, повторного migrator, FK, rollback,
+UUID-conflict, XP, series и гонок: tests/workouts-migration.test.js,
+tests/workouts-server.test.js и tests/workout-contracts.test.js.

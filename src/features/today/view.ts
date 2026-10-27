@@ -2,12 +2,14 @@ import { dom, escape } from '../../shared/dom.ts';
 import type { FeatureContext } from '../../shared/feature.ts';
 import { periodLabel, breakdown, summaryHTML } from '../../shared/weekly.ts';
 import { bindSummaryActions } from '../../shared/summary-actions.ts';
+import { createWorkoutOverview } from '../workouts/overview.ts';
 export function createToday(root: HTMLElement, ctx: FeatureContext) {
   const { get: $, text } = dom(root),
     { session } = ctx;
   let calendarOffset = 0,
     lastBonus: number | null = null;
   const cleanup = bindSummaryActions(root, session, ctx.showError);
+  const workouts = createWorkoutOverview(root, ctx);
   async function loadCalendar() {
     const state = session.state;
     if (!state?.today) return;
@@ -55,6 +57,7 @@ export function createToday(root: HTMLElement, ctx: FeatureContext) {
     $('calendar').innerHTML = html;
   }
   function render() {
+    workouts.render();
     const state = session.state,
       s = state;
     if (!s?.profile || !s.today || !s.weekly) return;
@@ -184,6 +187,7 @@ export function createToday(root: HTMLElement, ctx: FeatureContext) {
       void loadCalendar();
     },
     destroy: () => {
+      workouts.destroy();
       cleanup();
       root.removeEventListener('click', click);
     },
