@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, access, mkdir, chmod, copyFile, rm } from 'node:fs/promises';
+import { readFile, writeFile, access, mkdir, mkdtemp, chmod, copyFile, rm } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { loadStagingSigning, assertStagingCertificate } from './staging-signing.mjs';
+import { buildMetadata } from './build.mjs';
 
 const root = resolve(import.meta.dirname, '..');
+const metadata = buildMetadata(root, { release: true });
 const android = join(root, 'android');
 const windows = process.platform === 'win32';
 const binary = (name) => (windows ? `${name}.exe` : name);
@@ -28,6 +30,7 @@ await access(join(sdk, 'platforms', 'android-36', 'android.jar'));
 const tools = join(sdk, 'build-tools', '36.0.0');
 await access(join(tools, binary('aapt')));
 const toolEnv = { ...process.env };
+toolEnv.MOVEMENT_BUILD_METADATA = JSON.stringify(metadata);
 if (signing) toolEnv.MOVEMENT_STAGING_KEYSTORE = signing.keystore;
 toolEnv.ANDROID_USER_HOME ||= join(root, 'work', 'android-user');
 toolEnv.GRADLE_USER_HOME ||= join(root, 'work', 'gradle');
@@ -81,12 +84,22 @@ assert.ok(
   badging.includes(`versionName='${pkg.version}'`),
   'Android version differs from package.json.',
 );
+assert.ok(
+  badging.includes(`versionCode='${metadata.versionCode}'`),
+  'Android versionCode differs from client metadata.',
+);
+assert.deepEqual(
+  JSON.parse(await readFile(join(root, 'dist/android-client/build-metadata.json'), 'utf8')),
+  metadata,
+  'Packaged metadata differs from the source snapshot.',
+);
 assert.ok(badging.includes("targetSdkVersion:'36'"), 'Unexpected target SDK.');
 for (const permission of ['INTERNET', 'CAMERA', 'WAKE_LOCK'])
   assert.ok(badging.includes(`android.permission.${permission}`), `Missing ${permission}.`);
 const entries = run(join(tools, binary('aapt')), ['list', apk], { capture: true });
 for (const file of [
   'index.html',
+  'build-metadata.json',
   'assets/models/pose_landmarker_full.task',
   'assets/vision.worker.js',
   'assets/wasm/vision_wasm_internal.wasm',
@@ -95,6 +108,19 @@ for (const file of [
     entries.split(/\r?\n/).includes(`assets/public/${file}`),
     `Missing packaged resource: ${file}`,
   );
+}
+const extracted = await mkdtemp(join(root, 'work', 'apk-metadata-'));
+try {
+  run(join(javaHome, 'bin', binary('jar')), ['xf', apk, 'assets/public/build-metadata.json'], {
+    cwd: extracted,
+  });
+  assert.deepEqual(
+    JSON.parse(await readFile(join(extracted, 'assets/public/build-metadata.json'), 'utf8')),
+    metadata,
+    'Final APK metadata differs from the source snapshot.',
+  );
+} finally {
+  await rm(extracted, { recursive: true, force: true });
 }
 assert.ok(
   !entries.includes('assets/public/app-debug.apk'),
@@ -113,7 +139,7 @@ for (const dir of [artifacts, join(root, 'public'), join(root, 'dist', 'client')
   await writeFile(
     join(dir, 'app-debug.apk.json'),
     JSON.stringify({
-      version: pkg.version,
+      ...metadata,
       sha256: hash,
       size: bytes.length,
       appId: config.appId,

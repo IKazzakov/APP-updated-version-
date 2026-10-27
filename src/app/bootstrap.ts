@@ -42,7 +42,11 @@ export function bootstrap(app: HTMLElement) {
     retry: async () => {
       if (session.loadError || !session.outbox) await load();
       else await session.retry();
-      await workouts.sync();
+      try {
+        await workouts.retry();
+      } catch (error) {
+        showError(errorMessage(error));
+      }
     },
     changeServer: (url) => {
       if (
@@ -125,7 +129,8 @@ export function bootstrap(app: HTMLElement) {
         await workouts.connect();
         await workouts.refresh();
         void workouts.refreshCatalog();
-        if (workouts.pending || workouts.record?.pendingEnd) await workouts.sync();
+        if (!workouts.apiUnavailable && (workouts.pending || workouts.record?.pendingEnd))
+          await workouts.sync();
       } catch {
         /* the legacy app remains usable if the program journal cannot open */
       }
@@ -168,7 +173,8 @@ export function bootstrap(app: HTMLElement) {
     }
     await session.refresh();
     await workouts.refresh();
-    if (workouts.pending || workouts.record?.pendingEnd) void workouts.sync().catch(() => {});
+    if (!workouts.apiUnavailable && (workouts.pending || workouts.record?.pendingEnd))
+      void workouts.sync().catch(() => {});
     if (reloadPages) activateData();
   }
   function invitation() {

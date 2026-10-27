@@ -34,6 +34,9 @@ export class WorkoutsService {
   private progress: ActivityProgress | null = null;
   private opening: Promise<void> | null = null;
   private sending: Promise<void> | null = null;
+  private checking: Promise<void> | null = null;
+  private refreshing: Promise<void> | null = null;
+  private supportRevision = 0;
   private writes: Promise<unknown> = Promise.resolve();
   private transport: Transport;
   private storageFactory: (owner: string) => Storage;
@@ -44,6 +47,8 @@ export class WorkoutsService {
   ready = false;
   saving = false;
   error: unknown = null;
+  apiState: 'unknown' | 'checking' | 'ready' | 'unsupported' = 'unknown';
+  availabilityError: unknown = null;
   programs = WORKOUT_PROGRAMS;
   constructor(
     session: SessionService,
@@ -98,7 +103,12 @@ export class WorkoutsService {
     );
   }
   get authorizationRequired() {
-    return this.error instanceof ApiError && this.error.status === 401;
+    return [this.error, this.availabilityError].some(
+      (error) => error instanceof ApiError && error.status === 401,
+    );
+  }
+  get apiUnavailable() {
+    return this.apiState === 'unsupported';
   }
   acknowledgeConflict() {
     // CAS recovery already loaded the durable snapshot. Only an explicit resume clears fail-stop.
@@ -131,6 +141,10 @@ export class WorkoutsService {
     this.saving = false;
     this.opening = null;
     this.sending = null;
+    this.checking = null;
+    this.refreshing = null;
+    this.apiState = 'unknown';
+    this.availabilityError = null;
     this.writes = Promise.resolve();
   }
   async connect() {
@@ -225,33 +239,102 @@ export class WorkoutsService {
       view.stepProgress.every((amount, index) => amount <= steps[index].target)
     );
   }
-  async refresh() {
+  private apiFailure(error: unknown, generation: number) {
+    if (
+      error instanceof ApiError &&
+      error.status === 404 &&
+      ['NOT_FOUND', 'API_NOT_FOUND'].includes(error.code)
+    ) {
+      const failure = new ApiError('WORKOUT_API_UNSUPPORTED', 404);
+      if (this.valid(generation)) {
+        this.apiState = 'unsupported';
+        this.supportRevision++;
+        this.availabilityError = failure;
+      }
+      return failure;
+    }
+    return error;
+  }
+  /** Readiness belongs to this API/profile/epoch, never to the packaged catalog. */
+  async ensureSupported(retry = false) {
     await this.connect();
     if (!this.owner) return;
-    const generation = this.generation;
-    try {
-      const value = parseActivity(await this.transport('v2/activity'));
-      if (!this.valid(generation)) return;
-      this.applyProgress(value);
-      this.error = null;
-      this.notify();
-    } catch (error) {
-      if (this.valid(generation)) {
-        this.error = error;
-        this.notify();
-      }
+    if (this.checking) return this.checking;
+    if (this.apiUnavailable && !retry) throw this.availabilityError;
+    if (globalThis.navigator?.onLine === false) {
+      if (this.apiUnavailable) throw this.availabilityError;
+      return;
     }
+    if (this.apiState === 'ready' && !retry) return;
+    const generation = this.generation,
+      revision = this.supportRevision;
+    this.apiState = 'checking';
+    const operation = (async () => {
+      try {
+        const catalog = parseWorkoutCatalog(await this.transport('v2/workouts/catalog'));
+        if (!this.valid(generation)) throw new ApiError('SESSION_REVOKED', 401);
+        const progress = parseActivity(await this.transport('v2/activity'));
+        if (!this.valid(generation)) throw new ApiError('SESSION_REVOKED', 401);
+        if (revision !== this.supportRevision) throw this.availabilityError;
+        this.programs = catalog.programs;
+        this.applyProgress(progress);
+        this.apiState = 'ready';
+        this.availabilityError = null;
+      } catch (caught) {
+        const error = this.apiFailure(caught, generation);
+        if (this.valid(generation)) {
+          if (!this.apiUnavailable) this.apiState = 'unknown';
+          this.availabilityError = error;
+        }
+        throw error;
+      } finally {
+        if (this.valid(generation)) {
+          this.checking = null;
+          this.notify();
+        }
+      }
+    })();
+    this.checking = operation;
+    this.notify();
+    return operation;
+  }
+  async retry() {
+    await this.ensureSupported(true);
+    await this.sync();
+  }
+  async refresh() {
+    await this.connect();
+    if (!this.owner || this.apiUnavailable) return;
+    if (this.refreshing) return this.refreshing;
+    const generation = this.generation;
+    const wasReady = this.apiState === 'ready';
+    const operation = (async () => {
+      try {
+        if (!wasReady && globalThis.navigator?.onLine !== false) await this.ensureSupported();
+        else {
+          const progress = parseActivity(await this.transport('v2/activity'));
+          if (this.valid(generation)) {
+            this.applyProgress(progress);
+            if (!this.apiUnavailable) this.availabilityError = null;
+          }
+        }
+      } catch (error) {
+        if (this.valid(generation)) this.availabilityError = this.apiFailure(error, generation);
+      } finally {
+        if (this.valid(generation)) {
+          this.refreshing = null;
+          this.notify();
+        }
+      }
+    })();
+    this.refreshing = operation;
+    return operation;
   }
   async refreshCatalog() {
-    const generation = this.generation;
     try {
-      const result = parseWorkoutCatalog(await this.transport('v2/workouts/catalog'));
-      if (!this.valid(generation)) return;
-      // Local immutable definitions remain available when the device goes offline.
-      this.programs = result.programs;
-      this.notify();
+      await this.ensureSupported();
     } catch {
-      /* keep the packaged, versioned catalog */
+      /* explicit retry remains available */
     }
   }
   async start(programId: string) {
@@ -264,7 +347,10 @@ export class WorkoutsService {
     if (this.unfinished) throw new Error('Сначала продолжите или завершите текущую программу.');
     const program = findWorkoutProgram(programId);
     if (!program) throw new Error('Программа недоступна. Обновите приложение.');
+    await this.ensureSupported();
+    if (!this.valid(generation)) throw new ApiError('SESSION_REVOKED', 401);
     await this.serial(async (storage, save, isCurrent) => {
+      if (this.unfinished) throw new ApiError('ACTIVE_WORKOUT', 409);
       if (this.current) await storage.clear(this.current.workout.id);
       if (!isCurrent()) throw new ApiError('SESSION_REVOKED', 401);
       const record: StoredWorkout = {
@@ -341,11 +427,13 @@ export class WorkoutsService {
   async sync() {
     if (this.sending) return this.sending;
     if (!this.record || !this.ready) return;
+    if (this.record.synced && !this.record.events.length && !this.record.pendingEnd) return;
     const generation = this.generation;
     const operation = (async () => {
       this.saving = true;
       this.notify();
       try {
+        await this.ensureSupported();
         for (;;) {
           await this.writes;
           if (!this.valid(generation)) return;
@@ -376,10 +464,13 @@ export class WorkoutsService {
             await save(next);
             if (!isCurrent()) return;
             this.applyProgress(reply.progress);
-            this.error = null;
           });
         }
-        if (!this.valid(generation) || !this.current?.pendingEnd) return;
+        if (!this.valid(generation)) return;
+        if (!this.current?.pendingEnd) {
+          this.error = null;
+          return;
+        }
         const old = this.current,
           end = old.pendingEnd!;
         const reply = parseWorkoutEnd(
@@ -414,8 +505,9 @@ export class WorkoutsService {
         });
         this.error = null;
       } catch (error) {
-        if (this.valid(generation)) this.error = error;
-        throw error;
+        const failure = this.apiFailure(error, generation);
+        if (this.valid(generation)) this.error = failure;
+        throw failure;
       } finally {
         if (this.valid(generation)) {
           this.saving = false;
@@ -449,7 +541,7 @@ export class WorkoutsService {
     await this.sync();
   }
   async loadHistory(more = false) {
-    if (this.historyLoading || !this.owner || (more && !this.cursor)) return;
+    if (this.historyLoading || !this.owner || this.apiUnavailable || (more && !this.cursor)) return;
     this.historyLoading = true;
     const generation = this.generation;
     try {
@@ -461,7 +553,7 @@ export class WorkoutsService {
       this.items = [...new Map(all.map((item) => [item.id, item])).values()];
       this.cursor = reply.nextCursor;
     } catch (error) {
-      if (this.valid(generation)) this.error = error;
+      if (this.valid(generation)) this.availabilityError = this.apiFailure(error, generation);
     } finally {
       if (this.valid(generation)) {
         this.historyLoading = false;

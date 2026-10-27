@@ -1,5 +1,6 @@
 import { escape } from '../../shared/dom.ts';
 import { findWorkoutProgram } from '../../shared/workouts/catalog.ts';
+import { errorMessage } from '../../shared/errors.ts';
 import type { FeatureContext } from '../../shared/feature.ts';
 import type { WorkoutStep } from '../../shared/contracts/workouts.ts';
 import './style.css';
@@ -14,9 +15,11 @@ export function createWorkoutOverview(root: HTMLElement, ctx: FeatureContext) {
   let signature = '';
   const click = (event: Event) => {
     const button = (event.target as Element).closest<HTMLElement>(
-      '[data-program-id],[data-workout-resume]',
+      '[data-program-id],[data-workout-resume],[data-workout-check]',
     );
-    if (button) ctx.openWorkout(button.dataset.programId);
+    if (button?.hasAttribute('data-workout-check')) {
+      void ctx.workouts.retry().catch((error) => ctx.showError(errorMessage(error)));
+    } else if (button) ctx.openWorkout(button.dataset.programId);
   };
   catalog.addEventListener('click', click);
   return {
@@ -32,19 +35,26 @@ export function createWorkoutOverview(root: HTMLElement, ctx: FeatureContext) {
         service.programs,
         service.record?.workout.id,
         service.unfinished,
+        service.record?.pendingEnd,
+        service.apiState,
+        service.expired,
+        !!service.availabilityError,
         ctx.session.state?.profile?.id,
       ]);
       if (signature === nextSignature) return;
       signature = nextSignature;
       const resume = service.unfinished
-        ? `<article class="card"><h2>Есть незаконченная программа</h2><p>Продолжение — до 24 часов после начала. Выполненный объём сохранён на устройстве.</p><button data-workout-resume class="button primary">Продолжить программу</button></article>`
+        ? `<article class="card"><h2>${service.record?.pendingEnd ? 'Завершение ожидает подтверждения' : 'Есть незаконченная программа'}</h2><p>${service.record?.pendingEnd ? 'Программа прекращена на устройстве. Упражнения и намерение завершения сохранены; дождитесь подтверждения перед новым запуском.' : service.expired ? '24 часа истекли. Сохраните частичный итог.' : 'Продолжение — до 24 часов после начала. Выполненный объём сохранён на устройстве.'}</p><button data-workout-resume class="button primary">${service.record?.pendingEnd ? 'Открыть сохранение результата' : service.expired ? 'Сохранить частичный итог' : 'Продолжить или завершить'}</button></article>`
         : '';
       catalog.innerHTML =
         resume +
+        (service.availabilityError
+          ? `<article class="card"><p role="status">${escape(errorMessage(service.availabilityError))}</p><button data-workout-check class="button secondary" ${service.apiState === 'checking' ? 'disabled' : ''}>Проверить снова</button></article>`
+          : '') +
         service.programs
           .map(
             (program) =>
-              `<article class="card"><h2>${escape(program.title)}</h2><p>${program.steps.map(label).map(escape).join(' → ')}</p><p class="muted">${program.rounds} круг · отдых ${program.restMs / 1000} с между подходами${program.id === 'starter-circuit-v1' ? ' · 13 единиц активности' : ''}</p><button class="button primary" data-program-id="${escape(program.id)}" ${!ctx.session.state?.profile ? 'disabled' : ''}>Выбрать программу</button></article>`,
+              `<article class="card"><h2>${escape(program.title)}</h2><p>${program.steps.map(label).map(escape).join(' → ')}</p><p class="muted">${program.rounds} круг · отдых ${program.restMs / 1000} с между подходами${program.id === 'starter-circuit-v1' ? ' · 13 единиц активности' : ''}</p><button class="button primary" data-program-id="${escape(program.id)}" ${!ctx.session.state?.profile || service.unfinished || service.apiUnavailable ? 'disabled' : ''}>${service.unfinished ? 'Сначала сохраните текущую программу' : 'Выбрать программу'}</button></article>`,
           )
           .join('');
     },
