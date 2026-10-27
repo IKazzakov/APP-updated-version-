@@ -367,12 +367,14 @@ try {
       await a.p.locator('[data-workout-retry]').waitFor({ state: 'visible' });
       assert.equal(finals, 1);
       await a.p.locator('[data-workout-retry]').click();
+      // Server history already contains the first finish whose response was lost.
+      // Await the client's durable end ack, including the readiness GETs on retry.
+      await a.p.locator('[data-workout-result]').waitFor({ state: 'visible' });
       const saved = await closed(a, 'squats-5-v1');
       assert.deepEqual(saved.stepProgress, [5]);
       assert.equal(finals, 2);
       assert.equal((await history(a.p)).filter((item) => item.id === saved.id).length, 1);
       assert.equal((await activity(a.p)).totalXp, 5);
-      await a.p.locator('[data-workout-result]').waitFor({ state: 'visible' });
       await a.p.screenshot({ path: 'work/browser-workouts/result.png', fullPage: true });
     } finally {
       holding = false;

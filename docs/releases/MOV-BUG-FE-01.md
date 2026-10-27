@@ -77,7 +77,8 @@ versionCode использует формулу Gradle. Один snapshot исп
 
 Для подписанного APK требуются полный SHA и чистые исходники до штатных временных
 изменений config/strings и удаления старого downloadable APK. Snapshot передаётся
-дочерним сборкам; устаревший SHA, несовпадение версии и новые изменения исходников
+дочерним сборкам; staging-entrypoint всегда снимает свежий snapshot, игнорируя
+унаследованный из окружения. Устаревший SHA, несовпадение версии и новые изменения исходников
 останавливают выпуск. В упаковщик добавлены проверки versionCode через aapt,
 метаданных staging-клиента и фактического JSON внутри APK через JDK jar.
 Сам APK в этой frontend-задаче не собирался.
@@ -121,6 +122,7 @@ HTTP/SQL, общие wire-типы/runtime-валидаторы, docs/API.md, se
 | `npm run build` | PASS; встроенные реальные HEAD и dirty=true тестируемого незакоммиченного дерева |
 | Целевой browser-workouts, `WORKOUT_RECOVERY_ONLY=1` | PASS, 1 сценарий, pageErrors=[] |
 | Целевой browser-diagnostics, `DIAGNOSTICS_COPY_ONLY=1` | PASS, 1 сценарий, pageErrors=[] |
+| `tests/browser-workouts.mjs` без адресного флага после найденной в CI гонки теста | PASS, 8 сценариев, pageErrors=[] |
 | Diff защищённых контрактов, версии, server/SQL, storage/offline, Android и workflow | Без изменений |
 
 Unit-регрессии покрывают preflight обоих GET до записи/POST, разделение ошибок,
@@ -128,6 +130,11 @@ Unit-регрессии покрывают preflight обоих GET до зап�
 неизменные UUID/intent, ack-before-end, потерянный ответ без двойного XP,
 сохранение ошибки end после refresh, безопасные маршруты и metadata/dirty/release guards.
 Существующие проверки local-write, CAS, старых ответов и повторной доставки сохранены.
+При обязательном CI обнаружена гонка прежнего browser-теста потерянного finish:
+серверная история уже содержит результат до клиентского retry. Проверка теперь
+ждёт клиентского подтверждения end после readiness GET, затем проверяет два
+finish-запроса, одну запись истории и отсутствие двойного XP. Затронутый
+browser-workouts целиком повторён локально; обязательный CI не отключался.
 
 Браузер использует реальный клиент, локальный API/изолированную SQLite и настоящую
 IndexedDB. Старую active/synced=false/events=[]/pendingEnd=abort запись загружает
