@@ -1,4 +1,14 @@
 /** Wire data only: no database, platform, UI or server implementation imports. */
+import type {
+  ActivityProgress,
+  WorkoutCatalogReply,
+  WorkoutSyncInput,
+  WorkoutSyncReply,
+  WorkoutEndInput,
+  WorkoutEndReply,
+  WorkoutHistoryReply,
+} from './workouts.ts';
+export type * from './workouts.ts';
 export interface Profile {
   id: string;
   displayName: string;
@@ -180,35 +190,45 @@ export interface Repetition {
 export interface MutationReply {
   state: Snapshot;
 }
-export type ApiResponse<P extends string> = P extends 'state'
-  ? AppState
-  : P extends 'profile'
-    ? MutationReply & { profile: Profile }
-    : P extends 'repetitions'
-      ? MutationReply & { accepted: number; duplicate: number }
-      : P extends 'rounds/start'
-        ? { round: Round; serverNow: number }
-        : P extends `rounds/${string}`
-          ? MutationReply & { round: Round }
-          : P extends 'competitions'
-            ? { competition: Competition; invitationToken?: string }
-            : P extends `competitions/${string}` | 'invitations/accept'
-              ? MutationReply & { competition: Competition }
-              : P extends 'invitations/preview'
-                ? InvitationPreview | { preview: InvitationPreview }
-                : P extends 'weeks/seen'
-                  ? MutationReply
-                  : P extends `leaderboards?${string}`
-                    ? Leaderboard
-                    : P extends `competitions?${string}`
-                      ? Page<Competition>
-                      : P extends `history/rounds?${string}`
-                        ? Page<Round>
-                        : P extends `history/progress?${string}`
-                          ? Page<DayProgress>
-                          : P extends `history/weeks?${string}`
-                            ? Page<WeeklySummary>
-                            : unknown;
+export type ApiResponse<P extends string> = P extends 'v2/activity'
+  ? ActivityProgress
+  : P extends 'v2/workouts/catalog'
+    ? WorkoutCatalogReply
+    : P extends 'v2/workouts/sync'
+      ? WorkoutSyncReply
+      : P extends `v2/workouts/${string}/finish` | `v2/workouts/${string}/abort`
+        ? WorkoutEndReply
+        : P extends `v2/workouts/history${string}`
+          ? WorkoutHistoryReply
+          : P extends 'state'
+            ? AppState
+            : P extends 'profile'
+              ? MutationReply & { profile: Profile }
+              : P extends 'repetitions'
+                ? MutationReply & { accepted: number; duplicate: number }
+                : P extends 'rounds/start'
+                  ? { round: Round; serverNow: number }
+                  : P extends `rounds/${string}`
+                    ? MutationReply & { round: Round }
+                    : P extends 'competitions'
+                      ? { competition: Competition; invitationToken?: string }
+                      : P extends `competitions/${string}` | 'invitations/accept'
+                        ? MutationReply & { competition: Competition }
+                        : P extends 'invitations/preview'
+                          ? InvitationPreview | { preview: InvitationPreview }
+                          : P extends 'weeks/seen'
+                            ? MutationReply
+                            : P extends `leaderboards?${string}`
+                              ? Leaderboard
+                              : P extends `competitions?${string}`
+                                ? Page<Competition>
+                                : P extends `history/rounds?${string}`
+                                  ? Page<Round>
+                                  : P extends `history/progress?${string}`
+                                    ? Page<DayProgress>
+                                    : P extends `history/weeks?${string}`
+                                      ? Page<WeeklySummary>
+                                      : unknown;
 export type ApiRequest = <P extends string>(
   path: P,
   options?: RequestOptions<P>,
@@ -248,19 +268,23 @@ export interface SeenWeekInput {
   week: string;
   total: number;
 }
-export type ApiBody<P extends string> = P extends 'profile'
-  ? ProfileInput
-  : P extends 'rounds/start'
-    ? StartRoundInput
-    : P extends 'repetitions'
-      ? RepetitionsInput
-      : P extends 'competitions'
-        ? CreateCompetitionInput
-        : P extends 'invitations/preview' | 'invitations/accept'
-          ? InvitationInput
-          : P extends 'weeks/seen'
-            ? SeenWeekInput
-            : P extends `rounds/${string}` | `competitions/${string}`
-              ? Record<string, never>
-              : unknown;
+export type ApiBody<P extends string> = P extends 'v2/workouts/sync'
+  ? WorkoutSyncInput
+  : P extends `v2/workouts/${string}/finish` | `v2/workouts/${string}/abort`
+    ? WorkoutEndInput
+    : P extends 'profile'
+      ? ProfileInput
+      : P extends 'rounds/start'
+        ? StartRoundInput
+        : P extends 'repetitions'
+          ? RepetitionsInput
+          : P extends 'competitions'
+            ? CreateCompetitionInput
+            : P extends 'invitations/preview' | 'invitations/accept'
+              ? InvitationInput
+              : P extends 'weeks/seen'
+                ? SeenWeekInput
+                : P extends `rounds/${string}` | `competitions/${string}`
+                  ? Record<string, never>
+                  : unknown;
 export type RequestOptions<P extends string> = Omit<ApiOptions, 'body'> & { body?: ApiBody<P> };

@@ -91,11 +91,14 @@ export class DiagnosticsPanel {
     this.$('select-report').onclick = () => selectReport(this.$('copy-fallback'));
     this.$('clear-activity').onclick = () => {
       activity.clear();
-      this.$('copy-fallback').value = '';
+      this.$('copy-fallback').value = diagnostics.reportText();
     };
     this.root.addEventListener('toggle', () => {
       activity.record('ui.action', { action: 'diagnostics' });
-      if (this.root.open) this.render();
+      if (this.root.open) {
+        this.$('copy-fallback').value = diagnostics.reportText();
+        this.render();
+      }
     });
     this.unsubscribe = activity.subscribe(() => {
       if (!this.queued) {
@@ -110,7 +113,20 @@ export class DiagnosticsPanel {
     this.onClick = (event) => {
       const b = event.target.closest('button,[data-tab]');
       if (!b) return;
+      const workoutAction = Object.entries({
+        'data-program-id': 'workout.select',
+        'data-workout-resume': 'workout.recover',
+        'data-workout-start': 'workout.start',
+        'data-workout-pause': 'workout.pause',
+        'data-workout-stop': 'workout.stop',
+        'data-workout-retry': 'workout.retry',
+        'data-workout-check': 'workout.check',
+        'data-workout-new': 'workout.new',
+        'data-workout-back': 'workout.back',
+        'data-workout-rest-skip': 'workout.rest',
+      }).find(([attribute]) => b.hasAttribute(attribute))?.[1];
       const action =
+        workoutAction ||
         b.dataset.tab ||
         b.dataset.competitionTab ||
         (b.dataset.attempt
@@ -133,6 +149,7 @@ export class DiagnosticsPanel {
     window.addEventListener('error', this.onError);
     window.addEventListener('unhandledrejection', this.onError);
     activity.record('app.ready');
+    this.$('copy-fallback').value = diagnostics.reportText();
     this.render();
   }
   sync({ error, loading, hasQueue }) {

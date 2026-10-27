@@ -1,6 +1,6 @@
 {
   "name": "exercise-counter",
-  "version": "2.5.4",
+  "version": "2.6.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -31,7 +31,8 @@
     "format:check": "prettier --check \"src/{app,services,features,shared,diagnostics}/**/*.{ts,css,html}\" \"src/*.d.ts\" src/main.js src/api.js src/data-client.js src/history.js src/diagnostics.js src/diagnostics-panel.js src/activity-log.js src/style.css src/diagnostics.css index.html tsconfig.json .prettierrc.json scripts/check-syntax.mjs scripts/test-browser.mjs tests/browser-architecture.mjs tests/client-contracts.test.js tests/client-lifecycle.test.js",
     "typecheck": "tsc --noEmit",
     "test:browser:all": "node scripts/test-browser.mjs",
-    "test:browser:architecture": "node tests/browser-architecture.mjs"
+    "test:browser:architecture": "node tests/browser-architecture.mjs",
+    "test:browser:workouts": "node tests/browser-workouts.mjs"
   },
   "dependencies": {
     "@capacitor/android": "8.5.3",

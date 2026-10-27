@@ -14,7 +14,7 @@ export function createDiagnostics(
     openProfile: () => void;
   },
 ) {
-  const diagnostics = new Diagnostics();
+  const diagnostics = new Diagnostics({ getApiBaseUrl });
   const panel = new DiagnosticsPanel({
     diagnostics,
     native: isNativeApp(),

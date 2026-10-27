@@ -16,6 +16,8 @@
 5. `docs/API.md` — текущий общий API-контракт для всех ролей.
 6. `src/shared/contracts/api.ts` и `src/shared/contracts/validate.ts` —
    клиентские типы и проверка внешнего JSON.
+7. `docs/team/HANDOFF.md` — общий реестр результатов и порядок получения
+   исходников, отчётов и сборочных артефактов между чатами.
 
 Определи текущую версию по `package.json` и `src/config.js`. Для frontend
 прочитай `docs/CLIENT_ARCHITECTURE.md`; для backend/БД — маршрутизаторы

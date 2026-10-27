@@ -1,5 +1,6 @@
 import { activity } from './activity-log.js';
 import { VERSION, VISION_VERSION, RULES_VERSION, MODELS } from './config.js';
+import { CLIENT_BUILD, safeApiBaseUrl } from './shared/build.ts';
 
 const ERRORS = new Set([
   'AUTH_REQUIRED',
@@ -16,6 +17,12 @@ const ERRORS = new Set([
   'MODEL_RUNTIME',
   'ROUND_ABORTED',
   'SAVE_FAILED',
+  'WORKOUT_API_UNSUPPORTED',
+  'WORKOUT_NOT_FOUND',
+  'ACTIVE_WORKOUT',
+  'WORKOUT_STORAGE_CONFLICT',
+  'API_RESPONSE_INVALID',
+  'NOT_FOUND',
   'UNKNOWN_ERROR',
   'ROUND_START_FAILED',
   'START_POSE_LOST',
@@ -27,6 +34,9 @@ const ERROR_NAMES = {
   NotReadableError: 'CAMERA_UNAVAILABLE',
 };
 const CONNECTION_CODES = [
+  'WORKOUT_API_UNSUPPORTED',
+  'NOT_FOUND',
+  'WORKOUT_NOT_FOUND',
   'NOT_CHECKED',
   'OK',
   'AUTH_REQUIRED',
@@ -71,7 +81,14 @@ function browserDescription() {
 }
 
 export class Diagnostics {
-  constructor() {
+  constructor({ getApiBaseUrl = () => '/api', build = CLIENT_BUILD } = {}) {
+    this.getApiBaseUrl = getApiBaseUrl;
+    this.build = Object.freeze({
+      version: build.version,
+      versionCode: build.versionCode,
+      sourceSha: build.sourceSha,
+      dirty: build.dirty,
+    });
     this.values = {};
     this.errors = [];
     this.startEvents = [];
@@ -160,9 +177,17 @@ export class Diagnostics {
     this.errors = this.errors.slice(-12);
   }
   report() {
+    let apiBaseUrl = null;
+    try {
+      apiBaseUrl = safeApiBaseUrl(this.getApiBaseUrl(), globalThis.location?.origin);
+    } catch {
+      /* unavailable platform context */
+    }
     return {
       app: 'Счётчик упражнений',
       version: VERSION,
+      build: { ...this.build },
+      apiBaseUrl,
       rulesVersion: RULES_VERSION,
       vision: VISION_VERSION,
       report: 'squat-support-v1',

@@ -70,7 +70,7 @@ export function validateIdentityImport(sourceBefore,sourceAfter,before,after,pla
   const source=tables(sourceBefore),unchanged=tables(sourceAfter),old=tables(before),next=tables(after);
   if(stable(Object.keys(source).sort())!==stable(Object.keys(unchanged).sort())||Object.keys(source).some(name=>!equalRows(source[name],unchanged[name])))throw new Error('Legacy source changed during consolidation; retirement is forbidden.');
   if(stable(Object.keys(old).sort())!==stable(Object.keys(next).sort()))throw new Error('Canonical schema changed during consolidation.');
-  const additions={profiles:plan.profiles,device_sessions:plan.sessions,user_totals:plan.profiles.map(row=>({user_id:row.user_id,points:0,bonus_points:0,revision:0})),ranking_consent:plan.profiles.map(row=>({user_id:row.user_id,changed_at:row.created_at,excluded:row.rankings_excluded}))};
+  const additions={profiles:plan.profiles,device_sessions:plan.sessions,user_totals:plan.profiles.map(row=>({user_id:row.user_id,points:0,bonus_points:0,revision:0})),activity_totals:plan.profiles.map(row=>({user_id:row.user_id,total_xp:0,revision:0})),ranking_consent:plan.profiles.map(row=>({user_id:row.user_id,changed_at:row.created_at,excluded:row.rankings_excluded}))};
   for(const [name,rows] of Object.entries(old)){
     if(!equalRows([...rows,...(additions[name]||[])],next[name]))throw new Error('Canonical existing data changed or import verification failed.');
   }

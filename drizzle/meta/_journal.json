@@ -36,6 +36,13 @@
       "when": 1792674000000,
       "tag": "0004_server_optimization",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793001600000,
+      "tag": "0005_workouts_activity",
+      "breakpoints": true
     }
   ]
 }

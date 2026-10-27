@@ -1,4 +1,13 @@
 import type { ApiResponse, Snapshot } from './api';
+import { parseWorkoutReply } from './validate-workouts.ts';
+export {
+  parseActivity,
+  parseWorkoutCatalog,
+  parseWorkoutSync,
+  parseWorkoutEnd,
+  parseWorkoutPage,
+} from './validate-workouts.ts';
+export { parseWorkoutReply };
 
 const object = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -134,6 +143,8 @@ const preview = (v: unknown) =>
 /** Validate external JSON before committing it. Unknown additive fields are allowed. */
 export function parseReply<P extends string>(path: P, value: unknown): ApiResponse<P> {
   const route = path.split('?')[0];
+  if (route === 'v2/activity' || route.startsWith('v2/workouts/'))
+    return parseWorkoutReply(path, value) as ApiResponse<P>;
   let valid = false;
   if (route === 'state') valid = isSnapshot(value) && value.partial !== true;
   else if (route === 'rounds/start') valid = fields(value, { round, serverNow: num });

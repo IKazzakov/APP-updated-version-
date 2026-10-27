@@ -1,0 +1,42 @@
+<div class="workout-heading">
+  <p class="eyebrow">ПРОГРАММА · КРУГОВАЯ ТРЕНИРОВКА</p>
+  <h1 data-workout-title>Выберите программу<span>.</span></h1>
+  <p data-workout-lineup class="subtitle"></p>
+</div>
+<div data-workout-body hidden>
+  <div class="workout-step-heading card">
+    <strong data-workout-exercise></strong><span data-workout-step class="pill"></span>
+  </div>
+  <div class="workout-workspace">
+    <section class="camera-panel" aria-label="Камера программы">
+      <div class="viewport workout-viewport">
+        <video data-workout-video autoplay muted playsinline></video>
+        <canvas data-workout-overlay aria-hidden="true"></canvas>
+        <p data-workout-camera-note class="workout-camera-note">
+          Камера включится после нажатия «Начать».
+        </p>
+      </div>
+      <p class="muted">Видео остаётся на устройстве.</p>
+    </section>
+    <section class="session-panel">
+      <div class="card workout-counter">
+        <p class="eyebrow">ТЕКУЩАЯ ЦЕЛЬ</p>
+        <strong data-workout-count aria-live="off">0</strong>
+        <p data-workout-hint role="status">Займите исходное положение.</p>
+        <p data-workout-next class="muted"></p>
+        <p data-workout-time class="muted"></p>
+      </div>
+      <div class="workout-controls">
+        <button data-workout-start class="button primary">Начать</button>
+        <button data-workout-pause class="button secondary" hidden>Пауза</button>
+        <button data-workout-rest-skip class="button secondary" hidden>Закончить отдых</button>
+        <button data-workout-stop class="button secondary" hidden>Завершить досрочно</button>
+        <button data-workout-retry class="button secondary" hidden>Повторить сохранение</button>
+        <button data-workout-check class="button secondary" hidden>Проверить снова</button>
+      </div>
+      <p data-workout-status class="connection" role="status" aria-live="polite"></p>
+    </section>
+  </div>
+</div>
+<article data-workout-result class="card workout-result" role="status" hidden></article>
+<button data-workout-back class="button text-button">Все программы</button>

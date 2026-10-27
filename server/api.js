@@ -3,6 +3,7 @@ import {weeklyState,leaderboard,validWeek,acknowledgeWeek,summaryView} from './w
 
 import {ensureCurrentWeek,reconcileUser} from './maintenance.js';
 import {readDashboard,readReceipt,readPage} from './reads.js';
+import {isWorkoutRoute,handleWorkoutRequest,hasActiveWorkout,workoutDatabaseError} from './workouts.js';
 
 const stateFor=(db,userId,now,compact)=>compact?readDashboard(db,userId,now):readState(db,userId,now);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -183,6 +184,7 @@ async function startRoute(db,userId,input,now,clock=()=>now) {
     if (existing.kind !== input.kind || existing.competition_id !== (input.competitionId ?? null)) reject(409,'REQUEST_REUSED','Этот запрос уже использован для другой попытки.');
     return {round:roundView(existing),serverNow:now};
   }
+  if(await hasActiveWorkout(db,userId,now))reject(409,'ACTIVE_WORKOUT','Сначала завершите начатую программу.');
   // Do not consume the minute while profile/idempotency reads are pending.
   // The same fresh instant governs both the deadline check and the insertion.
   now=clock();
@@ -280,6 +282,7 @@ export async function handleApi(request, env, options={}) {
     await expire(env.DB,now,userId);
     const compact=url.pathname.startsWith('/api/v2/');
     if(compact)url.pathname=url.pathname.replace('/api/v2/','/api/');
+    if(compact&&request.method==='GET'&&isWorkoutRoute(url.pathname))return json(await handleWorkoutRequest(env.DB,userId,url.pathname,'GET',undefined,url.searchParams,now));
     if(compact&&request.method==='GET'&&url.pathname==='/api/dashboard')return json(await readDashboard(env.DB,userId,now));
     const page=compact&&request.method==='GET'&&url.pathname.match(/^\/api\/(?:history\/(rounds|progress|weeks)|(competitions))$/);
     if(page)return json(await readPage(env.DB,userId,page[1]||page[2],url.searchParams,now));
@@ -297,6 +300,7 @@ export async function handleApi(request, env, options={}) {
     const body=await request.text();
     if (body.length > 65_536) reject(413,'TOO_LARGE','Слишком много данных. Повторите отправку небольшими частями.');
     let input; try {input=JSON.parse(body);} catch {reject(400,'INVALID_JSON','Не удалось прочитать данные запроса.');}
+    if(compact&&isWorkoutRoute(url.pathname))return json(await handleWorkoutRequest(env.DB,userId,url.pathname,'POST',input,url.searchParams,now));
     if (url.pathname === '/api/profile') return json(await profileRoute(env.DB,userId,input,now,compact));
     if(url.pathname === '/api/weeks/seen') {
       keys(input,['week','total']);
@@ -324,6 +328,7 @@ export async function handleApi(request, env, options={}) {
     if (invitation) return json(await invitationRoute(env.DB,userId,input,invitation[1],now,compact));
     reject(404,'NOT_FOUND','Страница не найдена.');
   } catch (error) {
+    error=workoutDatabaseError(error)??error;
     if (error instanceof ApiError) return json({error:{code:error.code,message:error.message}},error.status);
     console.error('API request failed:', error.name);
     return json({error:{code:'SERVER_ERROR',message:'Не удалось сохранить данные. Повторите отправку; повторения не продублируются.'}},500);

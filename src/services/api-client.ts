@@ -5,7 +5,11 @@ import type { ApiRequest, Transport } from '../shared/contracts/api.ts';
 export function createApiClient(transport: Transport) {
   const client = createDataClient(transport);
   const request: ApiRequest = async (path, options) => {
-    const result = await client.request(path, options);
+    // Programs have no v1 fallback. The explicit v2 prefix must not be added twice.
+    const result =
+      path === 'v2/activity' || path.startsWith('v2/workouts/')
+        ? await transport(path, options)
+        : await client.request(path, options);
     try {
       return parseReply(path, result);
     } catch {

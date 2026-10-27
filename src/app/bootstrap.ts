@@ -1,8 +1,15 @@
 import { dom } from '../shared/dom.ts';
+import { VERSION } from '../config.js';
 import { Lifecycle } from '../shared/lifecycle.ts';
 import { errorMessage, errorInfo } from '../shared/errors.ts';
 import { activity } from '../activity-log.js';
 import { SessionService } from '../services/session.ts';
+import { WorkoutsService } from '../services/workouts.ts';
+import {
+  rememberWorkoutProfile,
+  restoreWorkoutProfile,
+  forgetWorkoutProfile,
+} from '../features/workouts/offline.ts';
 import { Navigation } from './navigation.ts';
 import { mountScreens, type FeatureScreen } from './registry.ts';
 import { createProfile } from '../features/profile/controller.ts';
@@ -13,6 +20,8 @@ import profilePanel from '../features/profile/panel.html?raw';
 import authPanel from '../features/profile/auth.html?raw';
 
 export function bootstrap(app: HTMLElement) {
+  const versionLabel = app.querySelector<HTMLElement>('[data-app-version]');
+  if (versionLabel) versionLabel.textContent = `ДВИЖЕНИЕ / ${VERSION}`;
   migrateLegacyApi();
   app.querySelector<HTMLElement>('[data-profile="panel"]')!.innerHTML = profilePanel;
   app.querySelector<HTMLElement>('[data-profile="auth"]')!.innerHTML = authPanel;
@@ -23,6 +32,7 @@ export function bootstrap(app: HTMLElement) {
     text('app-error', message);
   };
   const session = new SessionService((error) => showError(errorMessage(error)));
+  const workouts = new WorkoutsService(session);
   const navigation = new Navigation(app.querySelector<HTMLElement>('nav')!, () => {
     if (navigation.current !== 'training') void refresh(false);
   });
@@ -32,9 +42,21 @@ export function bootstrap(app: HTMLElement) {
     retry: async () => {
       if (session.loadError || !session.outbox) await load();
       else await session.retry();
+      try {
+        await workouts.retry();
+      } catch (error) {
+        showError(errorMessage(error));
+      }
     },
     changeServer: (url) => {
-      if (training.cameraOn || training.busy || competitions.busy) throw new Error('BUSY');
+      if (
+        training.cameraOn ||
+        training.busy ||
+        competitions.busy ||
+        workouts.unfinished ||
+        workouts.pending
+      )
+        throw new Error('BUSY');
       setNativeApiUrl(url);
       session.destroy();
       location.reload();
@@ -42,6 +64,11 @@ export function bootstrap(app: HTMLElement) {
   });
   const ctx: FeatureContext = {
     session,
+    workouts,
+    openWorkout: (id) => {
+      navigation.open('training');
+      training.openWorkout(id);
+    },
     navigate: (screen) => navigation.open(screen),
     chooseMode: (mode, id) => training.chooseMode(mode, id),
     openProfile: () => profile.open(),
@@ -62,12 +89,18 @@ export function bootstrap(app: HTMLElement) {
     load,
     showError,
     canLogout: () => !training.busy && !training.running && !competitions.busy,
-    prepareLogout: training.prepareLogout,
+    prepareLogout: async () => {
+      if (!(await training.prepareLogout())) return false;
+      forgetWorkoutProfile();
+      return true;
+    },
   });
   for (const [id, feature] of Object.entries(features)) navigation.register(id, feature);
   for (const button of app.querySelectorAll<HTMLElement>('[data-tab]'))
     life.listen(button, 'click', () => navigation.open(button.dataset.tab || 'today'));
   function render() {
+    workouts.observeSession();
+    if (workouts.authorizationRequired) forgetWorkoutProfile();
     profile.render();
     for (const feature of Object.values(allFeatures)) feature.render();
     diagnostics.render();
@@ -90,10 +123,39 @@ export function bootstrap(app: HTMLElement) {
       await training.retryFinalization();
       const sent = await session.outbox?.flush();
       if (sent) await session.apply(sent, epoch);
+      if (epoch !== session.store.epoch) return;
+      void rememberWorkoutProfile(session.state);
+      try {
+        await workouts.connect();
+        await workouts.refresh();
+        void workouts.refreshCatalog();
+        if (!workouts.apiUnavailable && (workouts.pending || workouts.record?.pendingEnd))
+          await workouts.sync();
+      } catch {
+        /* the legacy app remains usable if the program journal cannot open */
+      }
       await activateData();
       await competitions.preview();
     } catch (error) {
       if (epoch !== session.store.epoch) return;
+      if (
+        navigator.onLine === false &&
+        !session.state?.profile &&
+        ['NETWORK', 'TIMEOUT'].includes(errorInfo(error).code)
+      ) {
+        const cached = await restoreWorkoutProfile();
+        if (cached && epoch === session.store.epoch && navigator.onLine === false) {
+          await session.apply(cached, epoch);
+          if (epoch !== session.store.epoch) return;
+          await workouts.connect();
+          session.loadError = null;
+          showError(
+            'Нет связи. Доступен сохранённый профиль и локальные программы. Новая активность ожидает подтверждения сервера.',
+          );
+          return;
+        }
+      }
+      if (errorInfo(error).status === 401) forgetWorkoutProfile();
       session.loadError = error;
       if (errorInfo(error).status !== 401) showError(errorMessage(error));
       diagnostics.diagnostics.error(
@@ -110,6 +172,9 @@ export function bootstrap(app: HTMLElement) {
       return;
     }
     await session.refresh();
+    await workouts.refresh();
+    if (!workouts.apiUnavailable && (workouts.pending || workouts.record?.pendingEnd))
+      void workouts.sync().catch(() => {});
     if (reloadPages) activateData();
   }
   function invitation() {
@@ -160,6 +225,7 @@ export function bootstrap(app: HTMLElement) {
       profile.destroy();
       diagnostics.destroy();
       session.destroy();
+      workouts.destroy();
       $('screens').replaceChildren();
       app.querySelector('nav')?.replaceChildren();
     },
