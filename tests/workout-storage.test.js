@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { accessSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { spawn } from 'node:child_process';
+import { accessSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { transformSync } from 'esbuild';
 import {
   WorkoutStorage,
@@ -311,60 +308,50 @@ test(
         await afterClose.clear('workout-two');
         afterClose.close();b.close();otherServer.close();
         passed++;
-        document.body.textContent=JSON.stringify({ok:true,passed});
-      } catch(error) {document.body.textContent=JSON.stringify({ok:false,passed,error:String(error.stack||error)});}
+        window.storageReport={ok:true,passed};
+      } catch(error) {window.storageReport={ok:false,passed,error:String(error.stack||error)};}
     `;
-    const directory = mkdtempSync(join(tmpdir(), 'movement-workout-storage-'));
-    const profile = join(directory, 'profile');
-    writeFileSync(join(directory, 'storage.js'), source);
-    writeFileSync(
-      join(directory, 'test.js'),
-      scenario.replace("from '/storage.js'", "from './storage.js'"),
-    );
-    writeFileSync(
-      join(directory, 'index.html'),
-      '<!doctype html><body>pending<script type="module" src="./test.js"></script>',
-    );
+    // CLI DOM dumping with a virtual-time budget does not wait for an explicit
+    // IndexedDB completion signal. Observe that signal in a real browser context
+    // so asynchronous transactions finish before verification. Playwright is loaded
+    // only for this opt-in test; ordinary npm test needs no browser driver.
+    const { chromium: driver } = createRequire(import.meta.url)('playwright-core');
+    const browser = await driver.launch({
+      executablePath: chromium,
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    });
     try {
-      const result = await new Promise((resolve, reject) => {
-        const child = spawn(chromium, [
-          '--headless',
-          '--no-sandbox',
-          '--disable-gpu',
-          '--disable-dev-shm-usage',
-          '--disable-background-networking',
-          '--no-first-run',
-          '--allow-file-access-from-files',
-          '--user-data-dir=' + profile,
-          '--virtual-time-budget=10000',
-          '--dump-dom',
-          pathToFileURL(join(directory, 'index.html')).href,
-        ]);
-        let stdout = '',
-          stderr = '';
-        child.stdout.on('data', (chunk) => (stdout += chunk));
-        child.stderr.on('data', (chunk) => (stderr += chunk));
-        const timeout = setTimeout(() => {
-          child.kill('SIGKILL');
-          reject(new Error('Chromium storage scenario timed out'));
-        }, 30000);
-        child.on('error', (error) => {
-          clearTimeout(timeout);
-          reject(error);
-        });
-        child.on('close', (code) => {
-          clearTimeout(timeout);
-          if (code !== 0) reject(new Error(stderr || 'Chromium exited ' + code));
-          else resolve(stdout);
-        });
+      const context = await browser.newContext({ serviceWorkers: 'block' });
+      const origin = 'http://127.0.0.1:19091';
+      const pageErrors = [];
+      const page = await context.newPage();
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+      // Interception supplies the complete loopback fixture: no listening port,
+      // production server or external request is needed for real IndexedDB.
+      await context.route(origin + '/**', (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path === '/storage.js')
+          return route.fulfill({ contentType: 'text/javascript', body: source });
+        if (path === '/test.js')
+          return route.fulfill({ contentType: 'text/javascript', body: scenario });
+        if (path === '/')
+          return route.fulfill({
+            contentType: 'text/html',
+            body: '<!doctype html><body><script type="module" src="/test.js"></script>',
+          });
+        return route.fulfill({ status: 404, body: '' });
       });
-      const body = result.match(/<body>([\s\S]*?)<\/body>/)?.[1];
-      assert.ok(body, String(result));
-      const report = JSON.parse(body.replaceAll('&quot;', '"').replaceAll('&amp;', '&'));
+      await page.goto(origin);
+      await page.waitForFunction(() => window.storageReport !== undefined, null, {
+        timeout: 10000,
+      });
+      const report = await page.evaluate(() => window.storageReport);
+      assert.deepEqual(pageErrors, []);
       assert.equal(report.ok, true, report.error);
       assert.equal(report.passed, 6);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      await browser.close();
     }
   },
 );

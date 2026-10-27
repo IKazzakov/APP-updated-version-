@@ -4,7 +4,8 @@
 База main: cf50e27419ffba4b3fd0caa5771b067b1ad407fa, версия исходников 2.5.4.
 Ветка: codex/programs-mvp-20261026.
 Проверенное дерево кода: 08b0ea9ae1dafcd439ba209f58c55dc42272b084.
-К этому дереву после проверки добавлен только настоящий отчёт.
+После общей проверки уточнены отчёт, описание QA-пакета и необязательный
+браузерный стенд IndexedDB; продуктовый код соответствует указанному дереву.
 
 ## Результат
 
@@ -75,10 +76,11 @@ Android-пакет/ключ/API-base и прежние данные. Новый 
 | npm run typecheck | PASS |
 | npm run format:check | PASS |
 | npm run lint | PASS |
-| npm test | 292/292 PASS |
+| npm test | 291 PASS, 1 условный SKIP, 0 FAIL (292 зарегистрировано) |
 | npm run build | PASS |
 | npm run backend:validate | PASS, dry-run без публикации |
 | npm run test:browser:all | 54/54 PASS, pageErrors=[] |
+| WORKOUT_STORAGE_BROWSER=1 node --test tests/workout-storage.test.js | 7/7 PASS, включая реальную IndexedDB в Chromium |
 | git diff --check | PASS |
 | Относительные ссылки документов | Проверены по рабочему дереву |
 
@@ -87,6 +89,12 @@ Android-пакет/ключ/API-base и прежние данные. Новый 
 Проверены чистая миграция, upgrade с существующими данными, FK, rollback,
 переоткрытие migrator, дневной XP-предел, активация и отсутствие ретро-XP,
 восстановление серии и конкурентные SQL-операции.
+
+Обычный npm test намеренно не запускает необязательный Chromium-тест хранилища;
+он выполнен отдельно с WORKOUT_STORAGE_BROWSER=1 (шесть внутренних проверок
+реальной IndexedDB, pageErrors=[]). Его прежний CLI-стенд зависал при ожидании
+асинхронных транзакций; стенд исправлен на явное ожидание результата через
+уже используемый Playwright, без новых зависимостей и изменения продукта.
 
 В браузерном стенде камера/landmarks имитировались; production feature extraction,
 алгоритмы, авторизация, HTTP API, SQLite и IndexedDB использовались настоящие.
