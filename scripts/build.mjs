@@ -10,6 +10,7 @@ const temporaryPaths = new Set([
   'android/app/src/main/res/values/strings.xml',
   'public/app-debug.apk',
   'public/app-debug.apk.sha256',
+  'public/app-debug.apk.json',
 ]);
 /** Capture before the APK scripts' temporary changes; never use GITHUB_SHA as HEAD. */
 export function buildMetadata(

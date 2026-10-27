@@ -29,8 +29,27 @@ jobs:
             echo '::error::The canonical server must be deployed from main.'
             exit 1
           fi
-  check:
+
+  preflight:
     needs: authorize
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Capture the existing D1 recovery point and Worker version
+        run: node --use-env-proxy scripts/release-checkpoint.mjs before
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: preflight-${{ github.sha }}
+          if-no-files-found: error
+          path: work/backend/preflight.json
+  check:
+    needs: preflight
     uses: ./.github/workflows/checks.yml
   android:
     needs: check
@@ -38,7 +57,7 @@ jobs:
     secrets:
       STAGING_ANDROID_KEYSTORE_BASE64: ${{ secrets.STAGING_ANDROID_KEYSTORE_BASE64 }}
   deploy:
-    needs: android
+    needs: [android, preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -60,15 +79,35 @@ jobs:
         with:
           name: movement-android-${{ github.sha }}
           path: work/artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: preflight-${{ github.sha }}
+          path: work/backend
+      - run: npm ci
+      - name: Capture clean source metadata before adding release downloads
+        run: |
+          node --input-type=module <<'JS_BUILD'
+          import assert from 'node:assert/strict';
+          import {appendFile,readFile} from 'node:fs/promises';
+          import {buildMetadata} from './scripts/build.mjs';
+          const build=buildMetadata(process.cwd(),{release:true,inherited:null});
+          const apk=JSON.parse(await readFile('work/artifacts/app-debug.apk.json','utf8'));
+          for(const field of ['version','versionCode','sourceSha','dirty']) assert.equal(apk[field],build[field]);
+          await appendFile(process.env.GITHUB_ENV,'MOVEMENT_BUILD_METADATA='+JSON.stringify(build)+'\n');
+          JS_BUILD
       - name: Include the APK built from this commit
         run: |
           cd work/artifacts
           sha256sum -c app-debug.apk.sha256
           cp app-debug.apk app-debug.apk.json app-debug.apk.sha256 ../../public/
-      - run: npm ci
       - run: npm run build
       - name: Migrate, deploy and verify the canonical server
         run: npm run backend:deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Verify migration journal, preserved data and published version
+        run: node --use-env-proxy scripts/release-checkpoint.mjs after
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -108,6 +147,10 @@ jobs:
           }
           JS_APK
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: backend-${{ github.sha }}
-          path: work/backend/deployment.json
+          path: |
+            work/backend/deployment.json
+            work/backend/preflight.json
+            work/backend/postflight.json

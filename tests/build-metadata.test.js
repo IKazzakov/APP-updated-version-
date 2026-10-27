@@ -53,6 +53,7 @@ test('one source snapshot survives only the documented temporary APK operations,
     clean = buildMetadata(root, { release: true, inherited: null });
   writeFileSync(join(root, 'capacitor.config.json'), '{"appId":"temporary"}');
   rmSync(join(root, 'public/app-debug.apk'));
+  writeFileSync(join(root, 'public/app-debug.apk.json'), '{"release":"download metadata"}');
   assert.deepEqual(buildMetadata(root, { release: true, inherited: JSON.stringify(clean) }), clean);
   assert.throws(
     () =>
