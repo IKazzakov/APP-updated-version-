@@ -39,6 +39,8 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
+      - name: Build local assets for the Worker dry-run only
+        run: npm run build
       - name: Check release tool and Worker dry-run
         run: |
           node --check scripts/release-web-api.mjs
