@@ -17,6 +17,17 @@
   вернуть её Тимлиду, не менять правило молча.
 - [AGENTS](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/4b1d0b8fa8b19ff8ee4e3aa8a90a349664cc4471/AGENTS.md), [TEAM_CONTEXT](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/4b1d0b8fa8b19ff8ee4e3aa8a90a349664cc4471/docs/TEAM_CONTEXT.md), [DEVELOPMENT](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/4b1d0b8fa8b19ff8ee4e3aa8a90a349664cc4471/docs/DEVELOPMENT.md), [WEB_PREVIEW](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/4b1d0b8fa8b19ff8ee4e3aa8a90a349664cc4471/docs/WEB_PREVIEW.md), [TASK_TEMPLATE](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/4b1d0b8fa8b19ff8ee4e3aa8a90a349664cc4471/docs/team/TASK_TEMPLATE.md). Инструкции PR24 ещё не в main; прочитать именно этот ref.
 
+## Согласованное уточнение после отчёта Backend
+
+Тимлид разрешил минимальную правку **server/api.js**. Блокер двойного Origin
+guard принят; это продолжение того же треда/ветки/PR30.
+Обязательное дополнение:
+[внутренний контракт Origin](../API_ORIGIN_ADAPTER_CONTRACT.md).
+Оно имеет приоритет над прежним read-only ограничением server/api.js.
+Внешний контракт и Frontend не меняются. Ветка начиналась с
+`0e0ad61e2f23a3ae7309f953c47c9afee78a6b31`; перед продолжением получить новый docs-only head
+без reset чужой работы.
+
 ## Чтение по задаче
 
 [Backend](https://github.com/rojoscarlos-cpu/APP-updated-version-/blob/4b1d0b8fa8b19ff8ee4e3aa8a90a349664cc4471/docs/team/BACKEND.md),
@@ -33,6 +44,10 @@ tests/cloudflare.test.js. Wire src/shared/contracts/api.ts и validate.ts read-o
 
 Вынести локальную классификацию browser Origin/preflight в новый
 `server/browser-origin.js`, подключить в `server/cloudflare.js`.
+Проверенный результат передавать в handleApi через options.originApproval:
+непрозрачный proof в приватной WeakMap, привязанный к окончательному Request.
+В server/api.js только расширить Origin gate по внутреннему контракту;
+старые вызовы без proof/с options.now остаются прежними.
 Точный доверенный Pages project regex и все входы/выходы/ошибки — в WEB_APP_CONTRACT.
 Изменяется только транспортный HTTP-контракт; все бизнес-JSON, auth/ownership,
 UUID/idempotency, лимиты, revision/pagination и SQLite остаются прежними.
@@ -45,27 +60,32 @@ Allow-Origin отражается только после проверки; от
 
 Единственный Backend владеет:
 - новый server/browser-origin.js;
-- server/cloudflare.js — только Origin/preflight и CORS wrapping API responses;
-- новый tests/browser-origin.test.js, tests/cloudflare.test.js — затронутые сценарии;
+- server/cloudflare.js — только Origin/preflight, выпуск proof для окончательного
+  Request и CORS wrapping API responses;
+- server/api.js — только options.originApproval и существующий POST Origin guard;
+- новые tests/browser-origin.test.js, tests/api-origin-context.test.js,
+  tests/cloudflare.test.js — затронутые сценарии;
 - docs/API.md — полное HTTP-расширение в том же PR;
 - docs/releases/MOV-WEB-API-01.md — результат/план активации/откат.
 
 Все остальные файлы read-only. Общие api.ts/validate.ts не меняются: JSON совместим.
 Если реально нужен новый JSON — остановить это расширение и вернуть точный diff
-Тимлиду; не делить контракт с Frontend. server/api.js/device-auth.js/SQL, пакет/
+Тимлиду; не делить контракт с Frontend. device-auth.js/SQL, пакет/
 ключ/API-base Android, начисления, runtime, deployment workflows не редактировать.
 Версии не поднимать в этом пакете.
 
 ## Критерии и адресные проверки
 
-1. node --test tests/browser-origin.test.js tests/cloudflare.test.js:
+1. node --test tests/browser-origin.test.js tests/api-origin-context.test.js tests/cloudflare.test.js:
    допустимый canonical alias; точные204 headers; case-insensitive header subset;
    badOrigin/null/http/credentials/port/path/suffix/immutable/apex/method/header
    negatives; читаемые401/validation errors; no DB for OPTIONS.
 2. На реальном существующем обработчике + отдельной SQLite:
    anonymous401; guest/profile; Bearer не даёт чужого профиля; чужойOrigin403
    без записи; повторы запроса остаются идемпотентны; прежний same-origin/native
-   и existing cloudflare regressions проходят.
+   и existing cloudflare regressions проходят. Cloudflare→handleApi profile обязан
+   пройти с настоящим proof; прямые handleApi/Sites/Node без proof и подделки
+   допуска должны сохранить403/отсутствие записей. См. полный внутренний контракт.
 3. Syntax/format/diff; существующий backend dry-run один раз для упаковки
    нового import. Остальные тесты — только при найденной регрессии;
    обязательный CI сохраняется. Не повторять вручную весь npm test/браузеры/APK.
