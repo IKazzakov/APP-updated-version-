@@ -29,6 +29,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  public-read:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Compare public GET requests
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          printf 'source: %s\n' "$SOURCE_SHA"
+          node --use-env-proxy tests/web-api-public-read.mjs
+
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 10
