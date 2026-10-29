@@ -59,6 +59,15 @@ jobs:
             work/web-api-release/manifest.json
             work/web-api-release/bundle/cloudflare.js
 
+      - name: Preserve safe prepare failure diagnosis
+        uses: actions/upload-artifact@v4
+        if: ${{ failure() }}
+        with:
+          name: web-api-prepare-error-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: work/web-api-release/error.json
+
   deploy:
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy'
     needs: prepare

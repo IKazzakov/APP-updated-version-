@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -154,24 +154,103 @@ export function inspectRemote({ subdomain, databases, deployments, version, sett
   };
 }
 
-async function cloud({ request, accountId, token }, path, { method = 'GET', body } = {}) {
-  const response = await request(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}${path}`,
-    {
-      method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(body instanceof FormData
-          ? {}
-          : { Accept: 'application/json', 'Content-Type': 'application/json' }),
-      },
-      ...(body === undefined
+// Only closed labels and known runtime codes may cross the diagnostic boundary.
+const readStages = new Set([
+  'CF_SUBDOMAIN',
+  'CF_DATABASES',
+  'CF_DEPLOYMENTS',
+  'CF_VERSION',
+  'CF_SETTINGS',
+  'PUBLIC_HTML',
+  'PUBLIC_APK_METADATA',
+  'PUBLIC_APK_CHECKSUM',
+  'PUBLIC_APK',
+]);
+const errorTypes = new Set([
+  'Error',
+  'TypeError',
+  'SyntaxError',
+  'AbortError',
+  'TimeoutError',
+  'AggregateError',
+]);
+const networkCodes = new Set([
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EPIPE',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_SOCKET',
+  'UND_ERR_ABORTED',
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
+]);
+function networkCode(error, depth = 0) {
+  if (!error || depth > 4) return undefined;
+  if (networkCodes.has(error.code)) return error.code;
+  return networkCode(error.cause, depth + 1);
+}
+class SafeReadError extends Error {
+  constructor(diagnostic) {
+    super(`Remote GET failed: ${JSON.stringify(diagnostic)}`);
+    this.diagnostic = Object.freeze(diagnostic);
+  }
+}
+async function readStage(stage, request, url, options, consume) {
+  if (!readStages.has(stage)) fail('Unknown GET stage.');
+  let status;
+  try {
+    const response = await request(url, options);
+    if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599)
+      status = response.status;
+    if (!response.ok)
+      throw new SafeReadError({ stage, errorType: 'HTTPError', ...(status ? { status } : {}) });
+    return await consume(response);
+  } catch (error) {
+    if (error instanceof SafeReadError) throw error;
+    const causeCode = networkCode(error);
+    throw new SafeReadError({
+      stage,
+      errorType: errorTypes.has(error?.name) ? error.name : 'UnknownError',
+      ...(causeCode ? { causeCode } : {}),
+      ...(status ? { status } : {}),
+    });
+  }
+}
+
+async function cloud({ request, accountId, token }, path, { method = 'GET', body, stage } = {}) {
+  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}${path}`;
+  const options = {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body instanceof FormData
         ? {}
-        : { body: body instanceof FormData ? body : JSON.stringify(body) }),
-      redirect: 'error',
-      signal: AbortSignal.timeout(30000),
+        : { Accept: 'application/json', 'Content-Type': 'application/json' }),
     },
-  );
+    ...(body === undefined ? {} : { body: body instanceof FormData ? body : JSON.stringify(body) }),
+    redirect: 'error',
+    signal: AbortSignal.timeout(30000),
+  };
+  if (method === 'GET')
+    return readStage(stage, request, url, options, async (response) => {
+      const payload = await response.json();
+      if (payload?.success !== true || payload.result === undefined)
+        fail('Cloudflare GET response is invalid.');
+      return payload.result;
+    });
+  const response = await request(url, options);
   let payload;
   try {
     payload = await response.json();
@@ -185,20 +264,22 @@ async function cloud({ request, accountId, token }, path, { method = 'GET', body
 
 export async function readRemote(context, config) {
   const base = `/workers/scripts/${worker}`;
-  const subdomain = await cloud(context, '/workers/subdomain');
+  const subdomain = await cloud(context, '/workers/subdomain', { stage: 'CF_SUBDOMAIN' });
   const databases = [];
   for (let page = 1; page <= 100; page++) {
-    const result = await cloud(context, `/d1/database?per_page=100&page=${page}`);
+    const result = await cloud(context, `/d1/database?per_page=100&page=${page}`, {
+      stage: 'CF_DATABASES',
+    });
     if (!Array.isArray(result)) fail('Invalid D1 listing.');
     databases.push(...result);
     if (result.length < 100) break;
     if (page === 100) fail('D1 listing is incomplete.');
   }
-  const deployments = await cloud(context, `${base}/deployments`);
+  const deployments = await cloud(context, `${base}/deployments`, { stage: 'CF_DEPLOYMENTS' });
   const activeId = deployments?.deployments?.[0]?.versions?.[0]?.version_id;
   if (!idPattern.test(activeId ?? '')) fail('Active Worker version is unavailable.');
-  const version = await cloud(context, `${base}/versions/${activeId}`);
-  const settings = await cloud(context, `${base}/script-settings`);
+  const version = await cloud(context, `${base}/versions/${activeId}`, { stage: 'CF_VERSION' });
+  const settings = await cloud(context, `${base}/script-settings`, { stage: 'CF_SETTINGS' });
   return inspectRemote({ subdomain, databases, deployments, version, settings, config });
 }
 
@@ -233,21 +314,24 @@ async function bundleWorker() {
 }
 
 async function publicArtifacts(request) {
-  const read = async (path) => {
-    const response = await request(origin + path, {
-      method: 'GET',
-      redirect: 'error',
-      signal: AbortSignal.timeout(60000),
-      headers: { 'Cache-Control': 'no-cache' },
-    });
-    if (!response.ok) fail(`Published asset read failed: HTTP ${response.status}.`);
-    return Buffer.from(await response.arrayBuffer());
-  };
+  const read = (path, stage) =>
+    readStage(
+      stage,
+      request,
+      origin + path,
+      {
+        method: 'GET',
+        redirect: 'error',
+        signal: AbortSignal.timeout(60000),
+        headers: { 'Cache-Control': 'no-cache' },
+      },
+      async (response) => Buffer.from(await response.arrayBuffer()),
+    );
   const [html, metadata, checksum, apk] = await Promise.all([
-    read('/index.html'),
-    read('/app-debug.apk.json'),
-    read('/app-debug.apk.sha256'),
-    read('/app-debug.apk'),
+    read('/index.html', 'PUBLIC_HTML'),
+    read('/app-debug.apk.json', 'PUBLIC_APK_METADATA'),
+    read('/app-debug.apk.sha256', 'PUBLIC_APK_CHECKSUM'),
+    read('/app-debug.apk', 'PUBLIC_APK'),
   ]);
   let parsed;
   try {
@@ -328,50 +412,73 @@ export async function prepare({
   buildBundle = bundleWorker,
   outputDir = output,
 } = {}) {
-  const source = sourceMetadata();
-  const config = JSON.parse(await readFile(resolve(root, 'wrangler.backend.json'), 'utf8'));
-  validateLocal({ source, config });
-  const bundle = await buildBundle();
-  let remote = { status: 'NOT_RUN', reason: 'CLOUDFLARE_CREDENTIALS_UNAVAILABLE' };
-  if (Boolean(accountId) !== Boolean(token)) fail('Cloudflare credentials are incomplete.');
-  if (accountId && token) {
-    if (!/^[a-f0-9]{32}$/i.test(accountId)) fail('Invalid Cloudflare account ID.');
-    const snapshot = await readRemote({ request, accountId, token }, config);
-    remote = { status: 'PASS', ...snapshot, publicArtifacts: await publicArtifacts(request) };
-  }
-  const manifest = {
-    schema: 1,
-    status: 'PREPARED',
-    source,
-    worker,
-    database,
-    apiBaseUrl: origin + '/api',
-    bundle: { file: 'bundle/cloudflare.js', sha256: bundle.sha256, size: bundle.size },
-    remote:
-      remote.status === 'PASS'
-        ? {
-            status: 'PASS',
-            databaseId: remote.databaseId,
-            previousVersionId: remote.previousVersionId,
-            activeDeploymentId: remote.activeDeploymentId,
-            bindingDigest: remote.bindingDigest,
-            bindingTypes: remote.bindingTypes,
-            settingsSummary: remote.settingsSummary,
-            preservation: {
-              keep_assets: true,
-              bindings: 'inherit-all',
-              routesAndCron: 'unchanged',
-              apk: 'unchanged',
-            },
-            publicArtifacts: remote.publicArtifacts,
-          }
-        : remote,
-  };
   await mkdir(outputDir, { recursive: true });
-  await writeFile(resolve(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', {
-    mode: 0o600,
-  });
-  return manifest;
+  // A failed repeat must never leave a previous successful manifest behind.
+  await rm(resolve(outputDir, 'manifest.json'), { force: true });
+  await rm(resolve(outputDir, 'error.json'), { force: true });
+  try {
+    const source = sourceMetadata();
+    const config = JSON.parse(await readFile(resolve(root, 'wrangler.backend.json'), 'utf8'));
+    validateLocal({ source, config });
+    const bundle = await buildBundle();
+    let remote = { status: 'NOT_RUN', reason: 'CLOUDFLARE_CREDENTIALS_UNAVAILABLE' };
+    if (Boolean(accountId) !== Boolean(token)) fail('Cloudflare credentials are incomplete.');
+    if (accountId && token) {
+      if (!/^[a-f0-9]{32}$/i.test(accountId)) fail('Invalid Cloudflare account ID.');
+      const snapshot = await readRemote({ request, accountId, token }, config);
+      remote = { status: 'PASS', ...snapshot, publicArtifacts: await publicArtifacts(request) };
+    }
+    const manifest = {
+      schema: 1,
+      status: 'PREPARED',
+      source,
+      worker,
+      database,
+      apiBaseUrl: origin + '/api',
+      bundle: { file: 'bundle/cloudflare.js', sha256: bundle.sha256, size: bundle.size },
+      remote:
+        remote.status === 'PASS'
+          ? {
+              status: 'PASS',
+              databaseId: remote.databaseId,
+              previousVersionId: remote.previousVersionId,
+              activeDeploymentId: remote.activeDeploymentId,
+              bindingDigest: remote.bindingDigest,
+              bindingTypes: remote.bindingTypes,
+              settingsSummary: remote.settingsSummary,
+              preservation: {
+                keep_assets: true,
+                bindings: 'inherit-all',
+                routesAndCron: 'unchanged',
+                apk: 'unchanged',
+              },
+              publicArtifacts: remote.publicArtifacts,
+            }
+          : remote,
+    };
+    await mkdir(outputDir, { recursive: true });
+    await writeFile(resolve(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', {
+      mode: 0o600,
+    });
+    return manifest;
+  } catch (error) {
+    const diagnostic =
+      error instanceof SafeReadError ? error.diagnostic : { stage: 'PREPARE', errorType: 'Error' };
+    await writeFile(
+      resolve(outputDir, 'error.json'),
+      JSON.stringify(
+        {
+          schema: 1,
+          status: 'FAILED',
+          diagnostic,
+        },
+        null,
+        2,
+      ) + '\n',
+      { mode: 0o600 },
+    );
+    throw error;
+  }
 }
 
 export async function deploy({

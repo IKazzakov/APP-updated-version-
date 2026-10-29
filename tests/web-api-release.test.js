@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -238,4 +238,160 @@ await assert.rejects(
   /VERIFY_REQUIRED/,
 );
 assert.equal(writes, 1);
-console.log('web-api-release: PASS');
+// Every real prepare GET has a fixed diagnostic stage, including response-body failures.
+const marker = 'marker-secret-do-not-print';
+const stages = [
+  ['/workers/subdomain', 'CF_SUBDOMAIN'],
+  ['/d1/database', 'CF_DATABASES'],
+  ['/deployments', 'CF_DEPLOYMENTS'],
+  [`/versions/${versionId}`, 'CF_VERSION'],
+  ['/script-settings', 'CF_SETTINGS'],
+  ['/index.html', 'PUBLIC_HTML'],
+  ['/app-debug.apk.json', 'PUBLIC_APK_METADATA'],
+  ['/app-debug.apk.sha256', 'PUBLIC_APK_CHECKSUM'],
+  ['/app-debug.apk', 'PUBLIC_APK'],
+];
+const apk = Buffer.from('published fixture APK');
+const digest = createHash('sha256').update(apk).digest('hex');
+const publicBytes = {
+  '/index.html': Buffer.from('<html>published</html>'),
+  '/app-debug.apk.json': Buffer.from(JSON.stringify({ sha256: digest, size: apk.length })),
+  '/app-debug.apk.sha256': Buffer.from(digest),
+  '/app-debug.apk': apk,
+};
+const fixtureBundle = async () => ({
+  bytes: bundleBytes,
+  size: bundleBytes.length,
+  sha256: createHash('sha256').update(bundleBytes).digest('hex'),
+});
+const fullFake = async (url, options) => {
+  assert.equal(options.method, 'GET');
+  assert.equal(options.redirect, 'error');
+  assert.ok(options.signal instanceof AbortSignal);
+  const bytes = publicBytes[new URL(url).pathname];
+  return bytes ? { ok: true, status: 200, arrayBuffer: async () => bytes } : fake(url, options);
+};
+const diagnosisDir = await mkdtemp(join(tmpdir(), 'movement-network-test-'));
+try {
+  for (const [suffix, stage] of stages) {
+    for (const kind of ['dns', 'tls', 'timeout', 'reset', 'http', 'body', 'unknown']) {
+      let failures = 0;
+      let bodyReads = 0;
+      const causeCode = {
+        dns: 'ENOTFOUND',
+        tls: 'ERR_TLS_CERT_ALTNAME_INVALID',
+        timeout: 'UND_ERR_CONNECT_TIMEOUT',
+        reset: 'ECONNRESET',
+      }[kind];
+      const request = async (url, options) => {
+        if (!new URL(url).pathname.endsWith(suffix)) return fullFake(url, options);
+        failures++;
+        const failure = new TypeError(`${marker} ${url} ${options.headers.Authorization}`);
+        failure.cause = { code: causeCode ?? marker, message: marker, headers: { secret: marker } };
+        failure.url = url;
+        failure.headers = { Authorization: marker };
+        if (kind === 'http' || kind === 'body')
+          return {
+            ok: kind === 'body',
+            status: kind === 'http' ? 403 : 200,
+            headers: { Authorization: marker },
+            json: async () => {
+              bodyReads++;
+              throw failure;
+            },
+            arrayBuffer: async () => {
+              bodyReads++;
+              throw failure;
+            },
+          };
+        if (kind === 'unknown') failure.name = marker;
+        throw failure;
+      };
+      // Seed stale success evidence to prove a failed repeat cannot be mistaken for PASS.
+      await writeFile(join(diagnosisDir, 'manifest.json'), '{"status":"PREPARED"}');
+      let caught;
+      await assert.rejects(
+        prepare({
+          request,
+          accountId: 'c'.repeat(32),
+          token: marker,
+          outputDir: diagnosisDir,
+          buildBundle: fixtureBundle,
+        }),
+        (error) => {
+          caught = error;
+          return true;
+        },
+      );
+      const expected = {
+        stage,
+        errorType:
+          kind === 'http' ? 'HTTPError' : kind === 'unknown' ? 'UnknownError' : 'TypeError',
+        ...(causeCode ? { causeCode } : {}),
+        ...(['http', 'body'].includes(kind) ? { status: kind === 'http' ? 403 : 200 } : {}),
+      };
+      assert.deepEqual(caught.diagnostic, expected);
+      const artifact = await readFile(join(diagnosisDir, 'error.json'), 'utf8');
+      assert.deepEqual(JSON.parse(artifact), { schema: 1, status: 'FAILED', diagnostic: expected });
+      assert.equal((await stat(join(diagnosisDir, 'error.json'))).mode & 0o777, 0o600);
+      await assert.rejects(readFile(join(diagnosisDir, 'manifest.json')), { code: 'ENOENT' });
+      for (const output of [artifact, String(caught), caught.stack, JSON.stringify(caught)]) {
+        for (const privateValue of [
+          marker,
+          'c'.repeat(32),
+          databaseId,
+          versionId,
+          'Authorization',
+          'https://',
+        ])
+          assert.equal(
+            output.includes(privateValue),
+            false,
+            `${stage}/${kind}: private value leaked`,
+          );
+      }
+      assert.equal(failures, 1, 'GET must not silently retry');
+      assert.equal(bodyReads, kind === 'body' ? 1 : 0);
+    }
+  }
+  // Invalid JSON retains the received HTTP status and the exact control-plane stage.
+  await assert.rejects(
+    readRemote(
+      {
+        accountId: marker,
+        token: marker,
+        request: async (url) => ({
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new SyntaxError(`${marker} ${url}`);
+          },
+        }),
+      },
+      config,
+    ),
+    (error) => {
+      assert.deepEqual(error.diagnostic, {
+        stage: 'CF_SUBDOMAIN',
+        errorType: 'SyntaxError',
+        status: 200,
+      });
+      assert.equal(String(error).includes(marker), false);
+      return true;
+    },
+  );
+  // Success clears a previous error; fixture assets still undergo checksum verification.
+  const success = await prepare({
+    request: fullFake,
+    accountId: 'c'.repeat(32),
+    token: marker,
+    outputDir: diagnosisDir,
+    buildBundle: fixtureBundle,
+  });
+  assert.equal(success.remote.status, 'PASS');
+  assert.equal(success.remote.publicArtifacts.apkSha256, digest);
+  await assert.rejects(readFile(join(diagnosisDir, 'error.json')), { code: 'ENOENT' });
+} finally {
+  await rm(diagnosisDir, { recursive: true, force: true });
+}
+console.log('web-api-release: PASS (release guards and 63 staged network/body/HTTP fixtures)');
