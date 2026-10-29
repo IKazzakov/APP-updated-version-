@@ -196,10 +196,35 @@ const networkCodes = new Set([
   'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
   'ERR_TLS_CERT_ALTNAME_INVALID',
 ]);
-function networkCode(error, depth = 0) {
-  if (!error || depth > 4) return undefined;
-  if (networkCodes.has(error.code)) return error.code;
-  return networkCode(error.cause, depth + 1);
+function safeField(value, key) {
+  try {
+    return value?.[key];
+  } catch {
+    return undefined;
+  }
+}
+function networkCode(error) {
+  const seen = new Set();
+  const pending = [[error, 0]];
+  let visits = 0;
+  while (pending.length && visits < 32) {
+    const [value, depth] = pending.shift();
+    if (!value || (typeof value !== 'object' && typeof value !== 'function') || seen.has(value))
+      continue;
+    seen.add(value);
+    visits++;
+    const code = safeField(value, 'code');
+    if (networkCodes.has(code)) return code;
+    if (depth >= 4) continue;
+    pending.push([safeField(value, 'cause'), depth + 1]);
+    const errors = safeField(value, 'errors');
+    try {
+      if (Array.isArray(errors))
+        for (let i = 0; i < Math.min(errors.length, 8); i++)
+          pending.push([safeField(errors, i), depth + 1]);
+    } catch {}
+  }
+  return 'UNKNOWN';
 }
 class SafeReadError extends Error {
   constructor(diagnostic) {
@@ -210,20 +235,39 @@ class SafeReadError extends Error {
 async function readStage(stage, request, url, options, consume) {
   if (!readStages.has(stage)) fail('Unknown GET stage.');
   let status;
+  let phase = 'REQUEST_CONSTRUCTION';
   try {
+    // Separate invalid request options from transport and response-body errors.
+    // The transport still receives the original URL and options.
+    new Request(url, options);
+    phase = 'REQUEST';
     const response = await request(url, options);
     if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599)
       status = response.status;
     if (!response.ok)
-      throw new SafeReadError({ stage, errorType: 'HTTPError', ...(status ? { status } : {}) });
+      throw new SafeReadError({
+        stage,
+        phase: 'HTTP_RESPONSE',
+        errorType: 'HTTPError',
+        ...(status ? { status } : {}),
+      });
+    phase = 'BODY';
     return await consume(response);
   } catch (error) {
     if (error instanceof SafeReadError) throw error;
     const causeCode = networkCode(error);
+    const type = safeField(error, 'name');
+    // Node's fixed redirect rejection is not a dynamic message in the output.
+    const redirectRejected =
+      phase === 'REQUEST' &&
+      type === 'TypeError' &&
+      safeField(safeField(error, 'cause'), 'message') === 'unexpected redirect';
     throw new SafeReadError({
       stage,
-      errorType: errorTypes.has(error?.name) ? error.name : 'UnknownError',
-      ...(causeCode ? { causeCode } : {}),
+      phase,
+      errorType: errorTypes.has(type) ? type : 'UnknownError',
+      causeCode,
+      ...(redirectRejected ? { category: 'REDIRECT_REJECTED' } : {}),
       ...(status ? { status } : {}),
     });
   }
@@ -313,25 +357,30 @@ async function bundleWorker() {
   return { bytes, sha256: sha256(bytes), size: bytes.length };
 }
 
+const readPublicArtifact = (request, path, stage) =>
+  readStage(
+    stage,
+    request,
+    origin + path,
+    {
+      method: 'GET',
+      redirect: 'error',
+      signal: AbortSignal.timeout(60000),
+      headers: { 'Cache-Control': 'no-cache' },
+    },
+    async (response) => Buffer.from(await response.arrayBuffer()),
+  );
+
+export function readPublicHtml(request = fetch) {
+  return readPublicArtifact(request, '/', 'PUBLIC_HTML');
+}
+
 async function publicArtifacts(request) {
-  const read = (path, stage) =>
-    readStage(
-      stage,
-      request,
-      origin + path,
-      {
-        method: 'GET',
-        redirect: 'error',
-        signal: AbortSignal.timeout(60000),
-        headers: { 'Cache-Control': 'no-cache' },
-      },
-      async (response) => Buffer.from(await response.arrayBuffer()),
-    );
   const [html, metadata, checksum, apk] = await Promise.all([
-    read('/index.html', 'PUBLIC_HTML'),
-    read('/app-debug.apk.json', 'PUBLIC_APK_METADATA'),
-    read('/app-debug.apk.sha256', 'PUBLIC_APK_CHECKSUM'),
-    read('/app-debug.apk', 'PUBLIC_APK'),
+    readPublicHtml(request),
+    readPublicArtifact(request, '/app-debug.apk.json', 'PUBLIC_APK_METADATA'),
+    readPublicArtifact(request, '/app-debug.apk.sha256', 'PUBLIC_APK_CHECKSUM'),
+    readPublicArtifact(request, '/app-debug.apk', 'PUBLIC_APK'),
   ]);
   let parsed;
   try {

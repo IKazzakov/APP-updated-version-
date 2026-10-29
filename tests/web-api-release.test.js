@@ -3,12 +3,14 @@ import { readFile, mkdtemp, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import {
   prepare,
   validateLocal,
   inspectRemote,
   uploadForm,
   readRemote,
+  readPublicHtml,
   publishVersion,
 } from '../scripts/release-web-api.mjs';
 
@@ -246,7 +248,7 @@ const stages = [
   ['/deployments', 'CF_DEPLOYMENTS'],
   [`/versions/${versionId}`, 'CF_VERSION'],
   ['/script-settings', 'CF_SETTINGS'],
-  ['/index.html', 'PUBLIC_HTML'],
+  ['/', 'PUBLIC_HTML'],
   ['/app-debug.apk.json', 'PUBLIC_APK_METADATA'],
   ['/app-debug.apk.sha256', 'PUBLIC_APK_CHECKSUM'],
   ['/app-debug.apk', 'PUBLIC_APK'],
@@ -254,7 +256,7 @@ const stages = [
 const apk = Buffer.from('published fixture APK');
 const digest = createHash('sha256').update(apk).digest('hex');
 const publicBytes = {
-  '/index.html': Buffer.from('<html>published</html>'),
+  '/': Buffer.from('<html>published</html>'),
   '/app-debug.apk.json': Buffer.from(JSON.stringify({ sha256: digest, size: apk.length })),
   '/app-debug.apk.sha256': Buffer.from(digest),
   '/app-debug.apk': apk,
@@ -325,9 +327,10 @@ try {
       );
       const expected = {
         stage,
+        phase: kind === 'http' ? 'HTTP_RESPONSE' : kind === 'body' ? 'BODY' : 'REQUEST',
         errorType:
           kind === 'http' ? 'HTTPError' : kind === 'unknown' ? 'UnknownError' : 'TypeError',
-        ...(causeCode ? { causeCode } : {}),
+        ...(kind === 'http' ? {} : { causeCode: causeCode ?? 'UNKNOWN' }),
         ...(['http', 'body'].includes(kind) ? { status: kind === 'http' ? 403 : 200 } : {}),
       };
       assert.deepEqual(caught.diagnostic, expected);
@@ -373,7 +376,9 @@ try {
     (error) => {
       assert.deepEqual(error.diagnostic, {
         stage: 'CF_SUBDOMAIN',
+        phase: 'BODY',
         errorType: 'SyntaxError',
+        causeCode: 'UNKNOWN',
         status: 200,
       });
       assert.equal(String(error).includes(marker), false);
@@ -394,4 +399,127 @@ try {
 } finally {
   await rm(diagnosisDir, { recursive: true, force: true });
 }
-console.log('web-api-release: PASS (release guards and 63 staged network/body/HTTP fixtures)');
+
+// Invalid headers fail at construction without calling the request transport.
+let constructionCalls = 0;
+await assert.rejects(
+  readRemote(
+    {
+      accountId: 'c'.repeat(32),
+      token: `invalid\n${marker}`,
+      request: async () => {
+        constructionCalls++;
+      },
+    },
+    config,
+  ),
+  (error) => {
+    assert.deepEqual(error.diagnostic, {
+      stage: 'CF_SUBDOMAIN',
+      phase: 'REQUEST_CONSTRUCTION',
+      errorType: 'TypeError',
+      causeCode: 'UNKNOWN',
+    });
+    assert.equal(String(error).includes(marker), false);
+    return true;
+  },
+);
+assert.equal(constructionCalls, 0);
+
+// Only bounded, known cause codes may escape cyclic or nested AggregateErrors.
+const cycle = { message: marker };
+cycle.cause = cycle;
+const nested = new TypeError(marker, {
+  cause: new AggregateError([cycle, { code: 'ECONNRESET', message: marker }], marker),
+});
+async function expectSafeCause(thrown, expectedCode) {
+  await assert.rejects(
+    readPublicHtml(async () => {
+      throw thrown;
+    }),
+    (error) => {
+      assert.equal(error.diagnostic.phase, 'REQUEST');
+      assert.equal(error.diagnostic.causeCode, expectedCode);
+      for (const output of [String(error), error.stack, JSON.stringify(error.diagnostic)])
+        assert.equal(output.includes(marker), false);
+      return true;
+    },
+  );
+}
+await expectSafeCause(nested, 'ECONNRESET');
+await expectSafeCause(new TypeError(marker, { cause: cycle }), 'UNKNOWN');
+let tooDeep = { code: 'ECONNRESET' };
+for (let i = 0; i < 5; i++) tooDeep = { cause: tooDeep };
+await expectSafeCause(tooDeep, 'UNKNOWN');
+const tooWide = new AggregateError([
+  ...Array.from({ length: 8 }, () => ({ code: marker })),
+  { code: 'ECONNRESET' },
+]);
+await expectSafeCause(tooWide, 'UNKNOWN');
+const many = new AggregateError(
+  Array.from(
+    { length: 8 },
+    (_, i) =>
+      new AggregateError(
+        Array.from({ length: 8 }, (_, j) => ({ code: i === 7 && j === 7 ? 'ECONNRESET' : marker })),
+      ),
+  ),
+);
+await expectSafeCause(many, 'UNKNOWN');
+
+// Reproduce Node's redirect rejection with a local HTTP server and the release options.
+const server = createServer((request, reply) => {
+  if (request.url === '/index.html') {
+    reply.writeHead(307, { Location: '/' });
+    reply.end();
+  } else {
+    reply.writeHead(200, { 'Content-Type': 'text/html' });
+    reply.end('<html>published</html>');
+  }
+});
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+});
+try {
+  const local = `http://127.0.0.1:${server.address().port}`;
+  const oldOptions = {
+    method: 'GET',
+    redirect: 'error',
+    signal: AbortSignal.timeout(60000),
+    headers: { 'Cache-Control': 'no-cache' },
+  };
+  const redirect = await fetch(`${local}/index.html`, { ...oldOptions, redirect: 'manual' });
+  assert.equal(redirect.status, 307);
+  assert.equal(redirect.headers.get('location'), '/');
+  await redirect.arrayBuffer();
+  await assert.rejects(
+    readPublicHtml((url, options) => fetch(`${local}/index.html`, options)),
+    (error) => {
+      assert.equal(error.diagnostic.phase, 'REQUEST');
+      assert.equal(error.diagnostic.category, 'REDIRECT_REJECTED');
+      assert.equal(error.diagnostic.causeCode, 'UNKNOWN');
+      assert.equal('status' in error.diagnostic, false);
+      return true;
+    },
+  );
+  let count = 0;
+  const html = await readPublicHtml((url, options) => {
+    count++;
+    assert.equal(url, 'https://movement-test-api-staging.rojoscarlos93.workers.dev/');
+    assert.equal(options.method, 'GET');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.headers['Cache-Control'], 'no-cache');
+    assert.equal(new Headers(options.headers).has('authorization'), false);
+    return fetch(`${local}${new URL(url).pathname}`, options);
+  });
+  assert.equal(count, 1);
+  assert.equal(html.toString(), '<html>published</html>');
+} finally {
+  await new Promise((resolve, reject) =>
+    server.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+console.log(
+  'web-api-release: PASS (release guards, 63 staged fixtures, redirect and bounded sanitation)',
+);

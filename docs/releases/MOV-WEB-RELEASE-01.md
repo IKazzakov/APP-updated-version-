@@ -113,3 +113,82 @@ merge в main. Затем разрешённый read-only `mode=prepare` на �
 Если причина внешняя, нужны изменения сети/прав или другие файлы — согласовать
 точное требование отдельной задачей; не менять Origin/policy/TLS/proxy по догадке.
 Слияние и deploy этим пакетом не разрешены; Worker/D1/статика/APK не изменены.
+
+
+## Проверка Тимлида — remote prepare 40904842514
+
+PR34 слит по прямому разрешению владельца. Main/source
+`952da1e0e4753309e7fcfe51f42fefbb66a1b010`, tree `b308d9301b84bd087fc6435065f38a79040d1053`, версия2.6.1.
+Дерево совпадает с принятым b38d585; Worker не опубликован.
+
+[Run40904842514](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40904842514), attempt1,
+завершился FAILURE: build и release unit PASS; prepare job123556675127
+остановился с `PUBLIC_HTML / TypeError`. HTTP status и causeCode отсутствуют.
+Error artifact12911366141 скачан; ZIP 233 bytes, SHA256
+`377675ecc90520e7d34bca615c365c46576d277d2b918cad9ac9eb923f8cd154`
+совпадает с GitHub digest. Внутри только error.json:
+
+```json
+{"schema":1,"status":"FAILED","diagnostic":{"stage":"PUBLIC_HTML","errorType":"TypeError"}}
+```
+
+Установлен этап чтения опубликованной страницы, корневая причина UNKNOWN.
+Ни Cloudflare auth failure, ни CORS, ни отсутствие D1 этим не доказаны;
+PASS остальных remote этапов также не заявляется. Manifest успеха отсутствует,
+remote readiness не подтверждён. Deploy job123557078913 SKIPPED.
+Worker/D1/assets/APK не изменены, повторов этого run Тимлидом нет.
+
+Следующий узкий пакет [MOV-WEB-RELEASE-02](../tasks/MOV-WEB-RELEASE-02.md):
+воспроизведение/исправление PUBLIC_HTML через безопасный публичный GET
+из PR runner без credentials до нового main merge. Frontend и алгоритмы
+не затрагиваются. После приёмки — отдельно разрешённое слияние/remote prepare;
+публикация требует собственной команды владельца.
+
+## MOV-WEB-RELEASE-02 — причина PUBLIC_HTML и проверка исправления
+
+Проверены base/main `952da1e0e4753309e7fcfe51f42fefbb66a1b010`, tree
+`b308d9301b84bd087fc6435065f38a79040d1053`, версия 2.6.1 и исходный коммит
+постановки `97f09ce0f78abe2718a5e2094bc3af60584b4966`. Исходный коммит
+сохранён в [draft PR35](https://github.com/rojoscarlos-cpu/APP-updated-version-/pull/35).
+
+На GitHub PR runner с Node 24 и `--use-env-proxy` выполнено сравнение без
+credentials и без автоматического перехода на другой host. В
+[run 40908295977, job public-read](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40908295977/job/123568988965)
+на source `4b292abcd1848197ecbb71df458a83da65481ca3`:
+
+- исходный GET `/index.html` с фактическими release options, включая
+  `redirect: 'error'`, завершился `REQUEST / TypeError / UNKNOWN` без HTTP status;
+- тот же адрес с `redirect: 'manual'` вернул HTTP 307; проверена только
+  безопасная булева характеристика, что цель — корневая страница этого origin;
+- GET `/` с прежними release options и отдельный минимальный GET `/` оба
+  получили HTTP 200 и прочитали тело. Диагностический job намеренно завершился
+  с ненулевым кодом, поскольку исходный release GET не прошёл.
+
+Таким образом, отказ воспроизводится из-за канонического redirect
+опубликованного `/index.html`: Node fetch при `redirect: 'error'` отклоняет
+его как `TypeError`. Причина не связана с предположениями о токене, CORS или D1.
+Теперь PUBLIC_HTML читает сразу `/`; прочие публичные файлы, проверки их
+checksum и guard-условия выпуска сохранены. Redirect по-прежнему запрещён.
+
+В [run 40908941783, job public-read](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40908941783/job/123571294704)
+на исправленном source `a023401ff97e43d4ceb305e60b3b7b456529e302` реальный GET
+через ту же функцию, что используется в release, и отдельный минимальный GET
+получили HTTP 200 и прочитали тело; оба результата PASS. Проверка фиксирует
+получение ответа, 2xx и чтение тела раздельно; она не заявляет проверку
+содержимого всего выпуска и не вызывает prepare или Cloudflare control plane.
+
+Диагностика различает создание запроса, transport, HTTP response и чтение тела;
+сохраняются только закрытые имена типов, известные коды либо `UNKNOWN`,
+фактически полученный status и фиксированная категория `REDIRECT_REJECTED`
+для установленного отказа Node. Обход вложенных `cause`/`AggregateError.errors`
+ограничен глубиной, числом элементов и посещений, с защитой от циклов; raw
+сообщения, URL, headers, body, account/database IDs и настройки не выводятся.
+
+В том же исправленном PR run холодный `node tests/web-api-release.test.js` без
+`dist/client` прошёл: прежние release guards и 63 staged fixtures, локальный
+307 redirect с реальным Node fetch, безопасные фазы и ограниченная обработка
+циклов/вложенных причин с marker-secret. Синтаксис, адресный Prettier и YAML
+проверены локально. Полный remote prepare, remote.status=PASS, deploy, миграции,
+APK и физическая приёмка телефона в этой задаче не выполнялись и не доказаны.
+После review и отдельного разрешения на merge Тимлид запускает read-only
+remote prepare; публикация Worker требует отдельной команды владельца.
