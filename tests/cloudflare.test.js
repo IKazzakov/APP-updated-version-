@@ -61,3 +61,49 @@ test('API errors never reach the HTML fallback; authenticated duels and rankings
  const missing=await call('/api/missing',{token:a});assert.equal(missing.status,404);assert.match(missing.headers.get('content-type'),/json/);
  assert.equal((await call('/api',{token:a})).status,404);
 });
+
+test('preview OPTIONS, guest and profile retain ownership and idempotency on isolated SQLite',async t=>{
+ const {call,env}=fixture(t),alias='https://preview-67f2889c80972c44.movement-preview.pages.dev',a=secret(),b=secret();
+ const preview={Origin:alias};
+ const preflight=await worker.fetch(new Request(origin+'/api/profile',{method:'OPTIONS',headers:{...preview,'Access-Control-Request-Method':'POST','Access-Control-Request-Headers':'Authorization, Content-Type'}}),{});
+ assert.equal(preflight.status,204);
+ const anonymous=await call('/api/state',{headers:preview});
+ assert.equal(anonymous.status,401);assert.equal(anonymous.data.error.code,'DEVICE_AUTH_REQUIRED');assert.equal(anonymous.headers.get('access-control-allow-origin'),alias);assert.match(anonymous.headers.get('vary'),/Origin/i);
+ const invalid=await call('/api/auth/guest',{body:{secret:'bad'},headers:preview});
+ assert.equal(invalid.status,400);assert.equal(invalid.data.error.code,'INVALID_REQUEST');assert.equal(invalid.headers.get('access-control-allow-origin'),alias);
+ const first=await call('/api/auth/guest',{body:{secret:a},headers:preview});
+ const second=await call('/api/auth/guest',{body:{secret:b},headers:preview});
+ assert.equal(first.status,200);assert.equal(second.status,200);
+ for(const token of [a,b]){
+  const response=await call('/api/profile',{token,body:{displayName:'Друг',timeZone:'UTC'},headers:preview});
+  assert.equal(response.status,200);assert.equal(response.headers.get('access-control-allow-origin'),alias);assert.equal(response.headers.get('cache-control'),'private, no-store');
+ }
+ const badBody=await call('/api/profile',{token:a,body:{displayName:'Друг',timeZone:'UTC',skipOriginCheck:true},headers:preview});assert.equal(badBody.status,400);assert.equal(badBody.data.error.code,'INVALID_INPUT');
+ const event={id:crypto.randomUUID(),occurredAt:new Date().toISOString()};
+ const rejected=await call('/api/repetitions',{token:a,body:{events:[event]},headers:{Origin:'https://evil.test'}});
+ assert.equal(rejected.status,403);assert.equal(rejected.data.error.code,'ORIGIN_FORBIDDEN');assert.equal(rejected.headers.get('access-control-allow-origin'),null);
+ assert.equal((await call('/api/state',{token:a,headers:preview})).data.today.count,0);
+ for(let i=0;i<2;i++)assert.equal((await call('/api/repetitions',{token:a,body:{events:[event]},headers:preview})).status,200);
+ assert.equal((await call('/api/state',{token:a,headers:preview})).data.today.count,1);
+ const other=await call('/api/state',{token:b,headers:{...preview,'x-test-user-id':first.data.userId,'oai-authenticated-user-id':first.data.userId}});
+ assert.notEqual(first.data.userId,second.data.userId);assert.equal(other.data.today.count,0);
+ const noProfile=secret();await call('/api/auth/guest',{body:{secret:noProfile},headers:preview});
+ const profileRequired=await call('/api/repetitions',{token:noProfile,body:{events:[event]},headers:preview});assert.equal(profileRequired.status,409);assert.equal(profileRequired.data.error.code,'PROFILE_REQUIRED');assert.equal(profileRequired.headers.get('access-control-allow-origin'),alias);
+ const missing=await call('/api/missing',{token:a,headers:preview});assert.equal(missing.status,404);assert.equal(missing.headers.get('access-control-allow-origin'),alias);
+ const health=await call('/api/health',{headers:preview});assert.equal(health.status,200);assert.equal(health.headers.get('access-control-allow-origin'),alias);
+ const head=await worker.fetch(new Request(origin+'/api/health',{method:'HEAD',headers:preview}),env);assert.equal(head.status,200);assert.equal(await head.text(),'');assert.equal(head.headers.get('access-control-allow-origin'),alias);
+ env.AUTH_LIMITER={limit:async()=>({success:false})};
+ const limited=await call('/api/auth/guest',{body:{secret:secret()},headers:preview});assert.equal(limited.status,429);assert.equal(limited.headers.get('access-control-allow-origin'),alias);
+ assert.equal(env.DB.sqlite.prepare('SELECT COUNT(*) AS count FROM profiles').get().count,2);
+});
+
+test('preview errors are readable and foreign POST is rejected before storage or body',async()=>{
+ const alias='https://preview-67f2889c80972c44.movement-preview.pages.dev';
+ const request=(method,origin,path='/api/state')=>new Request('https://movement.test'+path,{method,headers:{Origin:origin}});
+ const unavailable=await worker.fetch(request('GET',alias),{});assert.equal(unavailable.status,503);assert.equal(unavailable.headers.get('access-control-allow-origin'),alias);
+ const original=console.error;console.error=()=>{};
+ try{const failed=await worker.fetch(request('GET',alias,'/api/health'),{DB:{prepare(){throw new Error('test');}}});assert.equal(failed.status,500);assert.equal(failed.headers.get('access-control-allow-origin'),alias);}finally{console.error=original;}
+ const foreign=new Request('https://movement.test/api/state',{method:'POST',headers:{Origin:'https://evil.test'},body:'unread body'});
+ const forbidden=await worker.fetch(foreign,{get DB(){throw new Error('DB must not be accessed');}});
+ assert.equal(forbidden.status,403);assert.equal(foreign.bodyUsed,false);assert.equal((await forbidden.json()).error.code,'ORIGIN_FORBIDDEN');
+});

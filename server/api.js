@@ -1,3 +1,4 @@
+import {isBrowserOriginApproved} from './browser-origin.js';
 import {RULES_VERSION, ROUND_MS, DELIVERY_GRACE_MS, DAILY_GOAL, DAILY_POINTS, COMPETITION_MS, ATTEMPT_LIMIT, EVENT_RETENTION_MS} from './rules.js';
 import {weeklyState,leaderboard,validWeek,acknowledgeWeek,summaryView} from './weeks.js';
 
@@ -274,7 +275,7 @@ export async function handleApi(request, env, options={}) {
     if (!userId || userId.length > 200) reject(401,'SIGN_IN_REQUIRED','Войдите в профиль, чтобы сохранить результаты.');
     if (!env.DB) reject(503,'STORAGE_UNAVAILABLE','Серверное хранение ещё не подключено. Результаты пока не сохраняются.');
     if (request.method !== 'GET' && request.method !== 'POST') reject(405,'METHOD_NOT_ALLOWED','Этот способ запроса недоступен.');
-    if (request.method === 'POST' && request.headers.get('origin') !== url.origin) reject(403,'ORIGIN_FORBIDDEN','Откройте приложение напрямую и повторите действие.');
+    if (request.method === 'POST' && request.headers.get('origin') !== url.origin && !isBrowserOriginApproved(request,options.originApproval)) reject(403,'ORIGIN_FORBIDDEN','Откройте приложение напрямую и повторите действие.');
     const clock=typeof options.now === 'function' ? options.now : Date.now;
     const now=clock();
     if (!Number.isSafeInteger(now)) throw new Error('Invalid server clock');
