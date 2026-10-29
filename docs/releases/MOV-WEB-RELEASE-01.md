@@ -113,3 +113,33 @@ merge в main. Затем разрешённый read-only `mode=prepare` на �
 Если причина внешняя, нужны изменения сети/прав или другие файлы — согласовать
 точное требование отдельной задачей; не менять Origin/policy/TLS/proxy по догадке.
 Слияние и deploy этим пакетом не разрешены; Worker/D1/статика/APK не изменены.
+
+
+## Проверка Тимлида — remote prepare 40904842514
+
+PR34 слит по прямому разрешению владельца. Main/source
+`952da1e0e4753309e7fcfe51f42fefbb66a1b010`, tree `b308d9301b84bd087fc6435065f38a79040d1053`, версия2.6.1.
+Дерево совпадает с принятым b38d585; Worker не опубликован.
+
+[Run40904842514](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40904842514), attempt1,
+завершился FAILURE: build и release unit PASS; prepare job123556675127
+остановился с `PUBLIC_HTML / TypeError`. HTTP status и causeCode отсутствуют.
+Error artifact12911366141 скачан; ZIP 233 bytes, SHA256
+`377675ecc90520e7d34bca615c365c46576d277d2b918cad9ac9eb923f8cd154`
+совпадает с GitHub digest. Внутри только error.json:
+
+```json
+{"schema":1,"status":"FAILED","diagnostic":{"stage":"PUBLIC_HTML","errorType":"TypeError"}}
+```
+
+Установлен этап чтения опубликованной страницы, корневая причина UNKNOWN.
+Ни Cloudflare auth failure, ни CORS, ни отсутствие D1 этим не доказаны;
+PASS остальных remote этапов также не заявляется. Manifest успеха отсутствует,
+remote readiness не подтверждён. Deploy job123557078913 SKIPPED.
+Worker/D1/assets/APK не изменены, повторов этого run Тимлидом нет.
+
+Следующий узкий пакет [MOV-WEB-RELEASE-02](../tasks/MOV-WEB-RELEASE-02.md):
+воспроизведение/исправление PUBLIC_HTML через безопасный публичный GET
+из PR runner без credentials до нового main merge. Frontend и алгоритмы
+не затрагиваются. После приёмки — отдельно разрешённое слияние/remote prepare;
+публикация требует собственной команды владельца.
