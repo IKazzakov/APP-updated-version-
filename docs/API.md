@@ -14,7 +14,8 @@ Runtime ORM не используется.
 
 Бизнес-API возвращает JSON с `Cache-Control: private, no-store`, auth/health — `no-store`. Публичный Cloudflare Worker и Node API используют индивидуальную Bearer-сессию устройства; до явного гостевого входа ответ — `401 DEVICE_AUTH_REQUIRED`. Публичный Worker не доверяет заголовкам идентичности Sites или тестовым заголовкам. Отдельный сохранённый Sites-адаптер принимает только проверенную платформой идентичность. Локальные тестовые личности задаются отдельным тестовым сервером, который не входит в сборку приложения.
 
-Все POST требуют `Origin` того же сайта. Guest и бизнес-POST требуют
+POST требуют `Origin` того же сайта; публичный Cloudflare Worker дополнительно
+допускает доверенные Pages alias, описанные ниже. Guest и бизнес-POST требуют
 `Content-Type: application/json`; logout фактически не читает тело и Content-Type.
 Авторизация проверяется на каждой операции. Пользователь видит свою личную историю и только свои дуэли. Общие рейтинги раскрывают минимальные показатели участвующих профилей, не сохранивших отказ. Получатель секретной ссылки
 до принятия видит только имя автора, версию правил и доступность приглашения.
@@ -31,6 +32,41 @@ Runtime ORM не используется.
 не выводятся в технический журнал. Неизвестные поля, включая координаты,
 отклоняются у бизнес-операций и guest; logout тело не проверяет.
 Неизвестные query-параметры GET сейчас игнорируются.
+
+## Browser Origin и CORS публичного Worker
+
+Дополнительный Origin для `GET`, `HEAD`, `POST` и preflight `/api/*` — только
+полное каноническое значение по regex
+`^https://preview-[0-9a-f]{16}\.movement-preview\.pages\.dev$`. Это alias
+контролируемого Pages-проекта `movement-preview`. `http`, порт, путь, query,
+fragment, credentials, `null`, immutable deployment URL, apex и другие домены
+не допускаются этим правилом. Правила same-origin и запросов без Origin остаются
+прежними; Sites и локальный Node не получают дополнительный допуск Pages.
+Чужой POST публичный Worker отклоняет `403 ORIGIN_FORBIDDEN` до чтения тела и D1.
+
+Для `OPTIONS /api/*` допустимы только доверенный Origin, метод из `GET`, `HEAD`,
+`POST` и пустой список или подмножество `Authorization`, `Content-Type` в
+`Access-Control-Request-Headers` (имена без учёта регистра). Успех — `204`,
+пустое тело и заголовки:
+
+```http
+Access-Control-Allow-Origin: <проверенный Origin>
+Access-Control-Allow-Methods: GET, HEAD, POST
+Access-Control-Allow-Headers: Authorization, Content-Type
+Access-Control-Max-Age: 300
+Cache-Control: no-store
+Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
+```
+
+OPTIONS не требует Bearer и не обращается к D1. Чужой или отсутствующий Origin
+получает `403 ORIGIN_FORBIDDEN` без CORS allow-заголовков; доверенный Origin с
+неверным методом или списком заголовков получает читаемый `400 INVALID_PREFLIGHT`.
+
+К ответам фактических `GET`/`HEAD`/`POST` с доверенного Origin, включая ошибки,
+добавляются `Access-Control-Allow-Origin: <проверенный Origin>` и `Vary: Origin`.
+Статус, JSON и Cache-Control сохраняются. Origin проверяется на каждом запросе;
+`Access-Control-Allow-Credentials` не выдаётся, а Origin не является личностью.
+Авторизация остаётся Bearer, Sites/test identity headers не принимаются.
 
 ## Health и авторизация устройства
 
