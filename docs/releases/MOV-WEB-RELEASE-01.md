@@ -54,3 +54,62 @@ manifest/deployment artifact. План отката — новый percentage de
 
 `verify` не выполнялся против live API: до команды владельца новый Worker не
 опубликован. Опубликованный Frontend до этого сохраняет `API_DEPLOY_PENDING`.
+
+## MOV-WEB-RELEASE-01-NET — диагностика отказа prepare
+
+Проверены main `50bab63c34ad95e795f9508a33307b93af0c9eb3` и исходный коммит
+задания `3cee53eacf543c732fc6fa15bfb1f465ac90562a`, версия 2.6.1.
+Прочитан лог job `123518390398` ручного
+[prepare 40893762949](https://github.com/rojoscarlos-cpu/APP-updated-version-/actions/runs/40893762949).
+Установлен дефект наблюдаемости: исходный GET transport exception доходил до
+CLI как `fetch failed`, без этапа и `cause.code`; upload artifact после отказа
+пропускался. **Сетевой этап и причина прежнего отказа не установлены**:
+исторический лог этих данных не содержит. Неверный token, отсутствие Worker,
+ошибка D1 или внешняя network policy не доказаны. Локальные ограничения sandbox
+не являются объяснением ошибки отдельного GitHub runner.
+
+Теперь каждый GET control plane имеет закрытую метку `CF_SUBDOMAIN`,
+`CF_DATABASES`, `CF_DEPLOYMENTS`, `CF_VERSION`, `CF_SETTINGS`; опубликованные
+файлы — `PUBLIC_HTML`, `PUBLIC_APK_METADATA`, `PUBLIC_APK_CHECKSUM`, `PUBLIC_APK`.
+Ошибка запроса или чтения тела содержит только этап, тип из закрытого списка,
+известный сетевой `causeCode` при наличии и фактически полученный HTTP status.
+HTTP 403 фиксируется до чтения тела; у исключения до response HTTP status
+отсутствует. Неизвестные имена/коды отбрасываются; URL/hostname, IDs, headers,
+raw message/stack, response body и settings/vars в диагностике отсутствуют.
+POST upload/activation и прежние release guards сохранены, retries не добавлены.
+
+При отказе `prepare` пишет `work/web-api-release/error.json` с `status=FAILED`,
+режимом файла 0600. Ошибка вне GET получает общий этап `PREPARE`; это не
+утверждение о сетевой причине. Перед подготовкой удаляются прежние manifest
+и error JSON. Ошибка не превращается в PREPARED; CLI завершает работу с кодом 1.
+Workflow на failure сохраняет только этот безопасный JSON в приватный artifact
+`web-api-prepare-error-<SHA>` на 14 дней. Отсутствующий JSON проваливает upload.
+Успешный manifest/bundle по-прежнему сохраняется отдельным прежним шагом;
+режимы, secrets, условия deploy и main/SHA/confirmation guards не расширены.
+
+Проверки этой правки:
+
+- `node tests/web-api-release.test.js` — PASS, включая холодный запуск без
+  `dist/client`, прежние отрицательные guards и 63 fixtures: все 9 этапов ×
+  DNS/TLS/connect timeout/reset/HTTP 403/body failure/неизвестная ошибка.
+  Дополнительно invalid JSON сохраняет stage/status; marker-secret из
+  URL/message/cause/headers отсутствует в error message/stack/JSON и artifact.
+  Проверены отсутствие retries, удаление старого manifest и очистка error
+  после успешного prepare на fake transport с настоящей проверкой APK checksum.
+- `node --check scripts/release-web-api.mjs`, `npm run typecheck`, `npm run lint`,
+  адресный `prettier --check` трёх изменённых code/YAML-файлов,
+  YAML parse, failure artifact/deploy dependency и `git diff --check` — PASS.
+- Реальный локальный `prepare` проверяется через штатный Wrangler `deploy
+  --dry-run` без Cloudflare credentials; remote inspection остаётся `NOT_RUN`.
+  Это не результат fake transport и не remote.status=PASS.
+- Обязательный CI запускается штатным PR; полный ручной набор, APK, remote
+  prepare, deploy, verify, live guest/profile/SQL — NOT_RUN в этом пакете.
+
+Передача Тимлиду: сначала review этого PR и отдельная команда владельца на
+merge в main. Затем разрешённый read-only `mode=prepare` на новом main SHA.
+При отказе получить `web-api-prepare-error-<SHA>/error.json`; при успехе проверить
+настоящий manifest и remote.status. Только эти данные позволят установить
+точный сетевой этап/код и выбрать минимальное подтверждённое исправление.
+Если причина внешняя, нужны изменения сети/прав или другие файлы — согласовать
+точное требование отдельной задачей; не менять Origin/policy/TLS/proxy по догадке.
+Слияние и deploy этим пакетом не разрешены; Worker/D1/статика/APK не изменены.
