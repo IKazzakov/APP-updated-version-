@@ -40,7 +40,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Check release regression without built assets
+        run: |
+          test ! -d dist/client
+          node tests/web-api-release.test.js
       - name: Compare public GET requests
+        if: ${{ !cancelled() }}
         env:
           SOURCE_SHA: ${{ github.event.pull_request.head.sha }}
         run: |

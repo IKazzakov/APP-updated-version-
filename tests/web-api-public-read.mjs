@@ -1,6 +1,7 @@
-// Fixed, read-only public GETs. Never log a URL, header, body or raw exception.
+import { readPublicHtml } from '../scripts/release-web-api.mjs';
+
+// Fixed, read-only GETs. Never log a URL, header, body or raw exception.
 const root = 'https://movement-test-api-staging.rojoscarlos93.workers.dev/';
-const index = `${root}index.html`;
 const knownTypes = new Set([
   'Error',
   'TypeError',
@@ -8,6 +9,7 @@ const knownTypes = new Set([
   'AbortError',
   'TimeoutError',
   'AggregateError',
+  'HTTPError',
 ]);
 const knownCodes = new Set([
   'ENOTFOUND',
@@ -31,6 +33,7 @@ const knownCodes = new Set([
   'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
   'ERR_TLS_CERT_ALTNAME_INVALID',
 ]);
+const phases = new Set(['REQUEST_CONSTRUCTION', 'REQUEST', 'HTTP_RESPONSE', 'BODY']);
 
 function field(value, key) {
   try {
@@ -40,95 +43,120 @@ function field(value, key) {
   }
 }
 
-function diagnosis(error) {
+function networkCode(error) {
   const seen = new Set();
   const pending = [[error, 0]];
   let visits = 0;
-  let causeCode = 'UNKNOWN';
   while (pending.length && visits < 32) {
     const [value, depth] = pending.shift();
-    if (!value || (typeof value !== 'object' && typeof value !== 'function')) continue;
-    if (seen.has(value)) continue;
+    if (!value || (typeof value !== 'object' && typeof value !== 'function') || seen.has(value))
+      continue;
     seen.add(value);
     visits++;
     const code = field(value, 'code');
-    if (knownCodes.has(code)) {
-      causeCode = code;
-      break;
-    }
+    if (knownCodes.has(code)) return code;
     if (depth >= 4) continue;
     pending.push([field(value, 'cause'), depth + 1]);
     const errors = field(value, 'errors');
-    if (Array.isArray(errors))
-      for (let i = 0; i < Math.min(errors.length, 8); i++)
-        pending.push([field(errors, i), depth + 1]);
+    try {
+      if (Array.isArray(errors))
+        for (let i = 0; i < Math.min(errors.length, 8); i++)
+          pending.push([field(errors, i), depth + 1]);
+    } catch {}
   }
-  const type = field(error, 'name');
-  return { errorType: knownTypes.has(type) ? type : 'UnknownError', causeCode };
+  return 'UNKNOWN';
 }
 
-const releaseOptions = (redirect = 'error') => ({
-  method: 'GET',
-  redirect,
-  signal: AbortSignal.timeout(60000),
-  headers: { 'Cache-Control': 'no-cache' },
-});
+function statusFields(status) {
+  return Number.isInteger(status) && status >= 100 && status <= 599
+    ? { responseReceived: true, status, http2xx: status >= 200 && status < 300 }
+    : { responseReceived: false };
+}
 
-async function probe(label, url, options, observeRedirect = false) {
-  let phase = 'REQUEST_CONSTRUCTION';
+async function productionProbe() {
   let status;
+  let calls = 0;
   try {
-    // Check construction separately; fetch below still uses the original options.
-    new Request(url, options);
-    phase = 'REQUEST';
-    const response = await fetch(url, options);
-    if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599)
+    await readPublicHtml(async (url, options) => {
+      const headers = new Headers(options.headers);
+      if (
+        url !== root ||
+        options.method !== 'GET' ||
+        options.redirect !== 'error' ||
+        !(options.signal instanceof AbortSignal) ||
+        headers.has('authorization') ||
+        headers.has('proxy-authorization')
+      )
+        throw new Error('Unexpected public GET configuration.');
+      calls++;
+      const response = await fetch(url, options);
       status = response.status;
-    const location = observeRedirect ? response.headers.get('location') : null;
-    let locationIsRoot = false;
-    if (location) {
-      try {
-        locationIsRoot = new URL(location, url).href === root;
-      } catch {}
-    }
-    phase = 'BODY';
-    await response.arrayBuffer();
+      return response;
+    });
+    if (calls !== 1) throw new Error('Unexpected public GET count.');
     const result = {
-      probe: label,
-      transport: 'PASS',
-      ...(status ? { status } : {}),
-      http2xx: response.ok,
-      ...(observeRedirect ? { locationIsRoot } : {}),
+      probe: 'release_html',
+      result: 'PASS',
+      ...statusFields(status),
+      bodyRead: true,
     };
     console.log(JSON.stringify(result));
     return result;
   } catch (error) {
+    const d = field(error, 'diagnostic');
+    const type = field(d, 'errorType');
+    const code = field(d, 'causeCode');
+    const phase = field(d, 'phase');
     const result = {
-      probe: label,
-      transport: 'FAILED',
-      phase,
-      ...diagnosis(error),
-      ...(status ? { status } : {}),
+      probe: 'release_html',
+      result: 'FAILED',
+      phase: phases.has(phase) ? phase : 'UNKNOWN',
+      errorType: knownTypes.has(type) ? type : 'UnknownError',
+      ...(type === 'HTTPError' ? {} : { causeCode: knownCodes.has(code) ? code : 'UNKNOWN' }),
+      ...(field(d, 'category') === 'REDIRECT_REJECTED' ? { category: 'REDIRECT_REJECTED' } : {}),
+      ...statusFields(status),
+      bodyRead: false,
     };
     console.log(JSON.stringify(result));
     return result;
   }
 }
 
-const release = await probe('release_index', index, releaseOptions());
-await probe('index_redirect_observation', index, releaseOptions('manual'), true);
-const releaseRoot = await probe('root_release_options', root, releaseOptions());
-const minimalRoot = await probe('root_minimal', root, {
-  method: 'GET',
-  redirect: 'manual',
-  signal: AbortSignal.timeout(60000),
-});
-if (
-  release.transport !== 'PASS' ||
-  !release.http2xx ||
-  releaseRoot.transport !== 'PASS' ||
-  !releaseRoot.http2xx ||
-  minimalRoot.transport !== 'PASS' ||
-  !minimalRoot.http2xx
-)
-  process.exitCode = 1;
+async function minimalProbe() {
+  let phase = 'REQUEST_CONSTRUCTION';
+  let status;
+  try {
+    const options = { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(60000) };
+    new Request(root, options);
+    phase = 'REQUEST';
+    const response = await fetch(root, options);
+    status = response.status;
+    phase = 'BODY';
+    await response.arrayBuffer();
+    const result = {
+      probe: 'root_minimal',
+      result: response.ok ? 'PASS' : 'FAILED',
+      ...statusFields(status),
+      bodyRead: true,
+    };
+    console.log(JSON.stringify(result));
+    return result;
+  } catch (error) {
+    const type = field(error, 'name');
+    const result = {
+      probe: 'root_minimal',
+      result: 'FAILED',
+      phase,
+      errorType: knownTypes.has(type) ? type : 'UnknownError',
+      causeCode: networkCode(error),
+      ...statusFields(status),
+      bodyRead: false,
+    };
+    console.log(JSON.stringify(result));
+    return result;
+  }
+}
+
+const production = await productionProbe();
+const minimal = await minimalProbe();
+if (production.result !== 'PASS' || minimal.result !== 'PASS') process.exitCode = 1;
