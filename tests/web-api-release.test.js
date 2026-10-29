@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import {
   prepare,
   validateLocal,
@@ -137,7 +140,31 @@ assert.equal(
 assert.ok(calls.every((call) => call.method === 'GET'));
 assert.ok(calls.every((call) => !/(?:\/query|\/auth\/|assets-upload-session)/.test(call.url)));
 calls = [];
-const prepared = await prepare();
+const temp = await mkdtemp(join(tmpdir(), 'movement-release-test-'));
+const bundleBytes = Buffer.from('fixture worker');
+let buildCalls = 0;
+let prepared;
+try {
+  prepared = await prepare({
+    outputDir: temp,
+    request: async (...args) => {
+      calls.push(args);
+      throw new Error('Unexpected remote request');
+    },
+    buildBundle: async () => {
+      buildCalls++;
+      return {
+        bytes: bundleBytes,
+        size: bundleBytes.length,
+        sha256: createHash('sha256').update(bundleBytes).digest('hex'),
+      };
+    },
+  });
+  assert.deepEqual(JSON.parse(await readFile(join(temp, 'manifest.json'), 'utf8')), prepared);
+} finally {
+  await rm(temp, { recursive: true, force: true });
+}
+assert.equal(buildCalls, 1);
 assert.equal(prepared.status, 'PREPARED');
 assert.equal(prepared.remote.status, 'NOT_RUN');
 assert.match(prepared.bundle.sha256, /^[a-f0-9]{64}$/);

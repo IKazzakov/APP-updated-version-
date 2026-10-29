@@ -321,11 +321,17 @@ export async function publishVersion(context, bytes, metadata, sourceSha) {
   return { versionId: uploaded.id, deploymentId: activated.id };
 }
 
-export async function prepare({ request = fetch, accountId, token } = {}) {
+export async function prepare({
+  request = fetch,
+  accountId,
+  token,
+  buildBundle = bundleWorker,
+  outputDir = output,
+} = {}) {
   const source = sourceMetadata();
   const config = JSON.parse(await readFile(resolve(root, 'wrangler.backend.json'), 'utf8'));
   validateLocal({ source, config });
-  const bundle = await bundleWorker();
+  const bundle = await buildBundle();
   let remote = { status: 'NOT_RUN', reason: 'CLOUDFLARE_CREDENTIALS_UNAVAILABLE' };
   if (Boolean(accountId) !== Boolean(token)) fail('Cloudflare credentials are incomplete.');
   if (accountId && token) {
@@ -361,7 +367,8 @@ export async function prepare({ request = fetch, accountId, token } = {}) {
           }
         : remote,
   };
-  await writeFile(resolve(output, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', {
+  await mkdir(outputDir, { recursive: true });
+  await writeFile(resolve(outputDir, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', {
     mode: 0o600,
   });
   return manifest;
