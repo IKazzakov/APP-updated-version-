@@ -1,0 +1,132 @@
+name: Movement — Worker-only release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - codex/mov-web-release-01-20261029
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Prepare or deploy the accepted Worker code
+        type: choice
+        options: [prepare, deploy]
+        required: true
+      expected_source_sha:
+        description: Full 40-character SHA of the exact main checkout (deploy only)
+        type: string
+        required: false
+      confirmation:
+        description: Enter deploy-web-api for a separately authorized deploy
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: movement-deploy
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Check release tool and Worker dry-run
+        run: |
+          node --check scripts/release-web-api.mjs
+          node tests/web-api-release.test.js
+      - name: Prepare Worker-only artifact
+        run: node --use-env-proxy scripts/release-web-api.mjs prepare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ github.event_name == 'workflow_dispatch' && secrets.CLOUDFLARE_API_TOKEN || '' }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ github.event_name == 'workflow_dispatch' && secrets.CLOUDFLARE_ACCOUNT_ID || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-api-prepared-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            work/web-api-release/manifest.json
+            work/web-api-release/bundle/cloudflare.js
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy'
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Authorize exact main checkout before accessing secrets
+        env:
+          SOURCE_REF: ${{ github.ref }}
+          SOURCE_SHA: ${{ github.sha }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$SOURCE_REF" = refs/heads/main
+          test "$SOURCE_SHA" = "$EXPECTED_SOURCE_SHA"
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$CONFIRMATION" = deploy-web-api
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-api-prepared-${{ github.sha }}
+          path: work/web-api-release
+      - name: Publish one Worker version and activate it
+        run: node --use-env-proxy scripts/release-web-api.mjs deploy
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_SHA: ${{ github.sha }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Read-only postflight
+        run: node --use-env-proxy scripts/release-web-api.mjs verify
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Check browser CORS from the published full-app alias
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser-tools" --no-save playwright-core@1.58.2
+          node --input-type=module <<'JS_BROWSER'
+          import {createRequire} from 'node:module';
+          const require=createRequire(process.env.RUNNER_TEMP+'/browser-tools/package.json');
+          const {chromium}=require('playwright-core');
+          const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',headless:true});
+          try{
+            const page=await browser.newPage();
+            await page.goto('https://preview-67f2889c80972c44.movement-preview.pages.dev',{waitUntil:'domcontentloaded'});
+            const result=await page.evaluate(async()=>{
+              const api='https://movement-test-api-staging.rojoscarlos93.workers.dev/api';
+              const health=await fetch(api+'/health',{credentials:'omit'});
+              const state=await fetch(api+'/state',{credentials:'omit',headers:{'Content-Type':'application/json'}});
+              return {health:health.status,state:state.status,body:await state.json()};
+            });
+            if(result.health!==200||result.state!==401||result.body?.error?.code!=='DEVICE_AUTH_REQUIRED')
+              throw new Error('API_DEPLOY_PENDING: browser CORS/401 postflight failed.');
+            console.log('Browser read-only health, preflight and anonymous JSON: PASS');
+          }finally{await browser.close();}
+          JS_BROWSER
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-api-postflight-${{ github.sha }}
+          if-no-files-found: ignore
+          retention-days: 14
+          path: |
+            work/web-api-release/deployment.json
+            work/web-api-release/verification.json
